@@ -323,6 +323,7 @@ varps <- c("RESP", "GASTR", "RENAL", "HEMA", "SEPS", "TRAUMA", "ADLD3P", "DAS2D3
 #, "URIN1" #bcp de NA
 
 
+#----------------
 #score de propension
 ps <- glm(formula(paste0("SWAN ~ ",paste(varps,collapse="+"))), data = d, family="binomial")
 #d <- d[apply(apply(d[ ,varps], 2, is.na),1,sum)==0, ] #J'elimine les lignes avec au moins 1 NA
@@ -341,6 +342,7 @@ prs_df %>%
   xlab("Probability of having a SWAN GANZ") +
   theme_bw()
 
+#---------------------
 #Analyse en utilisant la méthode des quantiles (non complet)
 QT <- quantile(prs_df$pr_score)
 prs_df$quantile <- ifelse (prs_df$pr_score<QT[2], 1, NA)
@@ -349,15 +351,29 @@ prs_df$quantile <- ifelse (prs_df$pr_score>=QT[3] & prs_df$pr_score<QT[4], 3, pr
 prs_df$quantile <- ifelse (prs_df$pr_score>=QT[4] & prs_df$pr_score<QT[5], 4, prs_df$quantile)
 prs_df$quantile <- ifelse (prs_df$pr_score>QT[5], 5, prs_df$quantile)
 
+
+#----------------
 #MAtchit
 #https://stanford.edu/~ejdemyr/r-tutorials-archive/tutorial8.html#exercise
 #https://stanford.edu/~ejdemyr/r-tutorials-archive/matching.R
 
 #MatchIt ne sait pas gérer les NA => J'elimine les lignes avec au moins 1 NA
-d2 <- d[apply(apply(d[ ,varps], 2, is.na),1,sum)==0, ] # pas na.omit(d) car élimine toutes les lignes avec valeurs manquantes=> nrow=44...
-mod_match <- matchit(formula(paste0("SWAN ~ ",paste(varps,collapse="+"))),
-                     method = "nearest", data = d2)
-d_nomiss <- d[ ,c(varps,"SWAN")]
+
+#ne marche pas, dit qu'il existe des NA
+# idpat_noNA <- d[ ,c(varps,"SWAN","PTID")]
+# idpat_noNA <- na.omit(idpat_noNA)
+# idpat_noNA <- idpat_noNA[,"PTID"]
+# d_nomiss <- d[d$PTID %in% idpat_noNA, ]
+# mod_match <- matchit(formula(paste0("SWAN ~ ",paste(varps,collapse="+"))),
+#                      method = "nearest", replace = FALSE, ratio = 1, m.order = "smallest", caliper=0.5, data = d_nomiss)
+
+#ne marche pas non plus, dit qu'il existe des NA
+# d2 <- d[apply(apply(d[ ,varps], 2, is.na),1,sum)==0, ] # pas na.omit(d) car élimine toutes les lignes avec valeurs manquantes=> nrow=44...
+# mod_match <- matchit(formula(paste0("SWAN ~ ",paste(varps,collapse="+"))),
+#                      method = "nearest", data = d2)
+
+
+d_nomiss <- d[ ,c(varps,"SWAN","PTID")]
 d_nomiss <- na.omit(d_nomiss)
 mod_match <- matchit(formula(paste0("SWAN ~ ",paste(varps,collapse="+"))),
                      method = "nearest", replace = FALSE, ratio = 1, m.order = "smallest", caliper=0.5, data = d_nomiss)
@@ -366,8 +382,22 @@ summary(mod_match,standardize = TRUE)
 dta_m <- match.data(mod_match)
 dim(dta_m)
 
+#construire data avec toutes les variables(pour l'analyse finale):
+dtm <- dta_m
+dtm <- merge(d[ ,c("PTID", names(d)[! names(d) %in% names(dta_m)])], dta_m, by="PTID", all.x=F, all.y=T)
+# #ne marche pas car supprime la colonne distance utile pour les plots
+# pat_matched <- dta_m$PTID
+# dtm <- d[d$PTID %in% pat_matched, ]
 
-# Checking balance
+#-----------------
+# Checking balance : 
+#a faire uniquement sur les variables servant à construire le score de propension, car permet de voir
+#si le score et le matching ont bien marché
+
+#METHODE 1 : QQPLOT
+plot(mod_match)
+
+#METHODE 2 :moyenne pour chaque variable à chaque point de score de popension
 fn_bal <- function(dta, variable) {
   #browser()
   dta$variable <- dta[, variable]
@@ -386,14 +416,12 @@ fn_bal <- function(dta, variable) {
   if (num %% 2 != 0) fn_bal(dta_m, variable)
   else fn_bal(dta_m, variable) + theme(legend.position = "none")
 })
-
-
 #ml <- marrangeGrob(.l, nrow=3, ncol=2, widths = c(1, 0.85), top = NULL)
 ml <- marrangeGrob(.l, nrow=2, ncol=2, top = NULL)
 ggsave(file="distrib mean variables after matching.pdf", ml)
 
 
-#Print mran difference 
+#METHODE 3 : Print mean difference 
 varps_noql <- varps[!varps %in% c("INCOME", "NINSCLAS", "CAT1")]
 dta_mQ <- dta_m[ ,c(varps_noql,"SWAN")]
 diff <- dta_mQ%>%
@@ -433,20 +461,123 @@ ggplot(data = dataPlotMelt, mapping = aes(x = variable, y = SMD,
   theme_bw() + theme(legend.key = element_blank())
 
 
+#METHODE 3 BIS standardized mean difference sans tableone
+smd <- summary(mod_match, standardize = TRUE)
+smd <- smd$sum.matched
+smd$var <- rownames(smd)
+smd$group <- "matched"
+g <- ggplot(data = smd, aes(x=var, y= `Std. Mean Diff.`, group = group, color= group))
+g <- g + geom_point() + geom_line() + geom_hline(yintercept = 0.1, color="red", size=0.1) +
+  coord_flip() + theme_bw() + theme(legend.key = element_blank())
+  
 
+
+#METHODE 4 IC à la main
+
+getMIC <- function(.data){
+  dt <- lapply(names(.data), function(var){
+    num <- which(var==names(.data))
+    
+    .data[,var] <- (.data[,var] - mean(.data[,var]))/sd(.data[,var]) #standardisation 
+    
+    x <- .data[.data$SWAN == 1, var]
+    df1 <- data.frame(mymean = mean(x),
+                      ICminSG = mean(x) - 1.96*sqrt(var(x)/nrow(.data)),
+                      ICmaxSG = mean(x) + 1.96*sqrt(var(x)/nrow(.data)),
+                      myy = num*2-0.5,
+                      groupe = "SWAN",
+                      colour = 1)
+    
+    x <- .data[.data$SWAN == 0, var]
+    df0 <- data.frame(mymean = mean(x),
+                      ICminSG = mean(x) - 1.96*sqrt(var(x)/nrow(.data)),
+                      ICmaxSG = mean(x) + 1.96*sqrt(var(x)/nrow(.data)),
+                      myy = num*2+0.5,
+                      groupe = "NO SWAN",
+                      colour = 2)
+    
+    df <- rbind(df1,df0)
+  })
+  dt <- do.call(rbind, dt)
+  dt$var <- rep(names(.data),each=2)
+  return(dt)
+}
+
+df <- getMIC(dta_m)
+df <- na.omit(df)
+
+
+col <- hue_pal()(length(1:2))
+
+g <- ggplot(data=df, aes(x=mymean, xmin = ICminSG, y = myy, xend = ICmaxSG, colour=groupe)) + geom_point() 
+g <- g + labs(y = "variable")
+  
+for (i in 1:nrow(df)){
+g <- g + geom_segment(x = df$ICminSG[i], y = df$myy[i], xend = df$ICmaxSG[i], yend = df$myy[i], colour = col[df$colour[i]])
+g <- g + geom_segment(x = df$ICminSG[i], y = df$myy[i]-0.5, xend = df$ICminSG[i], yend = df$myy[i]+0.5, colour = col[df$colour[i]])
+g <- g + geom_segment(x = df$ICmaxSG[i], y = df$myy[i]-0.5, xend = df$ICmaxSG[i], yend = df$myy[i]+0.5, colour = col[df$colour[i]])
+}
+
+
+#reste à faire pour le schéma : 
+#- vérifier que j'ai bien standardisé
+#- mettre en ordonné le nom de la variable
+#- enlever les trous et séparer les variables (retirer les NA puis numéroter les y en séparant les groupes de variables) : (1:20)[1:20 %% 3 !=0] 
+
+#autre manière qui permet d'afficher les noms des var et qui elimine NA
+#mais pb de limite de IC et de position de IC
+g <- ggplot(data=df, aes(x=mymean, y= var, colour=groupe)) + geom_point() 
+g <- g + labs(y = "variable")
+
+for (i in 1:nrow(df)){
+  g <- g + geom_segment(x = df$ICminSG[i], y = df$myy[i], xend = df$ICmaxSG[i], yend = df$myy[i], colour = col[df$colour[i]])
+  g <- g + geom_segment(x = df$ICminSG[i], y = df$myy[i]-0.5, xend = df$ICminSG[i], yend = df$myy[i]+0.5, colour = col[df$colour[i]])
+  g <- g + geom_segment(x = df$ICmaxSG[i], y = df$myy[i]-0.5, xend = df$ICmaxSG[i], yend = df$myy[i]+0.5, colour = col[df$colour[i]])
+}
+
+#---------
+#analysis
+#http://imai.princeton.edu/research/files/matchit.pdf
+#journals.sfu.ca/jmde/index.php/jmde_1/article/download/431/414
+#http://r.iq.harvard.edu/docs/matchit/2.4-20/matchit.pdf
+
+
+table(table(dta_m$distance))
+
+#thiscommandsavesthedatamatched
+matches<-data.frame(mod_match$match.matrix)
+#matches<-dta_m
+#thesecommandsfindthematches.oneforgroup1oneforgroup2
+group1<-match(row.names(matches), row.names(d))
+group2<-match(matches$X1, row.names(d))
+#thesecommandsextracttheoutcomevalueforthematches
+yT<-d$DEATH[group1]
+yC<-d$DEATH[group2]
+#binding
+matched.cases<-cbind(matches,yT,yC)
+matched.cases <- na.omit(matched.cases)
+#Paired t-test
+t.test(as.numeric(matched.cases$yT), as.numeric(matched.cases$yC), paired = TRUE)
+
+ 
+
+
+#-------------------
+#QUESTIONS
 
 #J'ai trop de variables, je ne sais pas quoi faire
 # var <- c("AGE", "SCOMA1", "WTKILO1", "TEMP1", "MEANBP1", "PACO21", "PH1",
 #          "HEMA1", "POT1", "CREA1", "BILI1", "ALB1"     ,"URIN1" )
 
 #"SURV2MD1" je ne comprends pas ce que c'est
-#"CA" JE ne sais pas s'il faut la mettre quand on a CA aussi, s'il faut garder CA s'il faut la transformer 
-#cancer 0/1 et meta 0/1
-#Pour les variables qualitatives, je fais drop ou je sélectionne par paramètre et je ne prends
-#que les classes significatives? Est-ce que je les garde dans le SP en les transformant en var binaire?
+#"CA" JE ne sais pas s'il faut la mettre quand on a CA aussi, s'il faut garder CA s'il faut la transformer cancer 0/1 et meta 0/1
+#Pour les variables qualitatives, je fais drop ou je sélectionne par paramètre et je ne prends que les classes significatives? Est-ce que je les garde dans le SP en les transformant en var binaire?
 #Comment faire pour les variables avec beaucoup de données manquantes?
-
-
+#quelle formule utiliser pour différence standardisée des moyennes : moyenne ctrl - moyenne 
+#faut-il faire la balance pour toutes les variables ou uniquement variables du score de ps
+#comment checker la balance des variables qualitatives (tableone calcule une moyenne standardisée pour ces variables je ne vois pas comment?)
+# que faire des var quali : quand on selectionne var pour score de propension, quand on regarde la balance: transformer en bianaire? faire drop pour la selection? que plotter pour vérifier la balance? tableone plot qqch mais je ene sais pas quoi...
+#comment on met les paires dans le modèle?
 
 table(table(unique(d$ROWNAMES)))
 levels(d$CAT1)
@@ -470,3 +601,5 @@ range(d$LSTCTDTE, na.rm=T)
 d[1:5, c("SADMDTE", "DSCHDTE", "DTHDTE", "LSTCTDTE")]
 
 
+#0.2695
+summary(d$RESP)
