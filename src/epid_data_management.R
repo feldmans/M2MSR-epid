@@ -97,7 +97,7 @@ d$ddn <- as_date(ifelse(is.na(d$DTHDTE), d$LSTCTDTE, d$DTHDTE))
 d$time <- as.numeric(d$ddn - d$SADMDTE)
 d$censor <- ifelse (!is.na(d$DTHDTE), 1, 0)
 
-d$SWANT <- ifelse(d$SWAN==1, T, F)
+
 
   
 # d$DEATH2 <- ifelse(!is.na(d$DTHDTE), 1, 0)
@@ -358,7 +358,7 @@ varps <- varps[!varps%in% namesNA]
 #score de propension
 ps <- glm(formula(paste0("SWAN ~ ",paste(varps,collapse="+"))), data = d, family="binomial")
 
-d2 <- d[apply(apply(d[ ,varps], 2, is.na),1,sum)==0, ] #J'elimine les lignes avec au moins 1 NA
+d2 <- d[apply(apply(d[ ,varps], 2, is.na),1,sum)==0, ] #J'elimine les lignes avec au moins 1 NA dans les variables slectionnes varps
 d2$logitps <- as.vector(predict(ps, type = "response")) #response is the default for binomial model
 
 
@@ -390,50 +390,56 @@ d2$psgp <- cut(d2$logitps, breaks=quantile(d2$logitps, prob=0:4*0.25),
 #----------------
 #Appariemment sur le score de propension:
 
-#Matching :
+#Package Matching : Le traitement (ici SWan Ganz) doit être en true false
+#cours de David Hajage, MD PhD, département de biostatistiques de la Pitié Salpétriêre
+d2$SWANT <- ifelse(d2$SWAN==1, T, F)
+
 tmp <- Match(Tr = d2$SWANT, X = d2$logitps, M = 1, replace = FALSE, caliper = 0.2, ties = FALSE)
 
-d2.app <- d2[c(tmp$index.treated, tmp$index.control),]
-d2.app$paire <- rep(1:length(tmp$index.treated), 2)
-d2.app <- d2.app[order(d2.app$paire, d2.app$SWAN==1),]
+d2.app <- d2[c(tmp$index.treated, tmp$index.control),]#index.treated et index.control donne le numero des lignes selectionnees par le matching. Le premier individu de index.treated est matchée avec le 1er de index.ctrl. 
+d2.app$paire <- rep(1:length(tmp$index.treated), 2) #lignes de d2.app : d'abord les traités de chaque paire puis les control de chaque paire, donc on répète le numéro de paire
+d2.app <- d2.app[order(d2.app$paire, d2.app$SWAN==1),] #on réordonne selon la paire SG(1)NSG(1) SG(2)NSG(2) etc
+#=> donc ce tableau prend toutes les variables, uniquement les lignes correspondant aux individus matché et pour chaque individu on connait son numéro de paire
 
 
-
-#MAtchit
+#package MatchIt
 #https://stanford.edu/~ejdemyr/r-tutorials-archive/tutorial8.html#exercise
 #https://stanford.edu/~ejdemyr/r-tutorials-archive/matching.R
 
-#MatchIt ne sait pas gérer les NA => J'elimine les lignes avec au moins 1 NA
-
-#ne marche pas, dit qu'il existe des NA
-# idpat_noNA <- d[ ,c(varps,"SWAN","PTID")]
-# idpat_noNA <- na.omit(idpat_noNA)
-# idpat_noNA <- idpat_noNA[,"PTID"]
-# d_nomiss <- d[d$PTID %in% idpat_noNA, ]
-# mod_match <- matchit(formula(paste0("SWAN ~ ",paste(varps,collapse="+"))),
-#                      method = "nearest", replace = FALSE, ratio = 1, m.order = "smallest", caliper=0.5, data = d_nomiss)
-
-#ne marche pas non plus, dit qu'il existe des NA
-# d2 <- d[apply(apply(d[ ,varps], 2, is.na),1,sum)==0, ] # pas na.omit(d) car élimine toutes les lignes avec valeurs manquantes=> nrow=44...
-# mod_match <- matchit(formula(paste0("SWAN ~ ",paste(varps,collapse="+"))),
-#                      method = "nearest", data = d2)
-
-
-d_nomiss <- d[ ,c(varps,"SWAN","PTID")]
-d_nomiss <- na.omit(d_nomiss)
 mod_match <- matchit(formula(paste0("SWAN ~ ",paste(varps,collapse="+"))),
-                     method = "nearest", replace = FALSE, ratio = 1, m.order = "smallest", caliper=0.2, data = d_nomiss)
+                     method = "nearest", replace = FALSE, ratio = 1, m.order = "smallest", caliper=0.2, data = d2[,c("SWAN",varps,"PTID")])
+#MatchIt ne sait pas gérer les NA (même si les colonnes de la formule n'ont pas de NA) => JE dois préciser les colonnes qui m'interess dans data
 
-summary(mod_match,standardize = TRUE)
-dta_m <- match.data(mod_match)
-dim(dta_m)
 
-#construire data avec toutes les variables(pour l'analyse finale):
-dtm <- dta_m
-dtm <- merge(d[ ,c("PTID", names(d)[! names(d) %in% names(dta_m)])], dta_m, by="PTID", all.x=F, all.y=T)
-# #ne marche pas car supprime la colonne distance utile pour les plots
-# pat_matched <- dta_m$PTID
-# dtm <- d[d$PTID %in% pat_matched, ]
+#Pour retrouver les paires
+matches<-data.frame(mod_match$match.matrix)
+
+# > dim(matches)
+# [1] 2025    1
+#2025 lignes, qui correspondent aux 2025 individus traités (avant matching)
+
+# > head(matches)
+#       X1
+#   2  <NA>
+#   5   927
+#   10 2383
+#le patient SWAN de la ligne nommée 2 du tableau d2  n'est matché avec aucun patient non SWAN : il faut eliminer la ligne
+#le patient SWAN de la ligne nommée 5 du tableau d2 est matché avec le patient non SWAN de la ligne nommée 927
+
+#J'élimine les les lignes avec NA (correspond aux traités qui n'ont pas été appariée)
+matches <- na.omit(matches)
+
+groupSG1<-match(row.names(matches), row.names(d2)) #donne la position de chaque patient traité dans le tableau d2
+groupSG0<-match(matches$X1, row.names(d2)) #donne la position de chaque patient non traité dans d2
+
+d2.appbis <- d2[c(groupSG1, groupSG0),]
+d2.appbis$paire <- rep(1:length(groupSG1), 2) 
+d2.appbis <- d2.appbis[order(d2.appbis$paire, d2.appbis$SWAN==1), ]
+
+#si jamais j'ai finalement besoin des distances :
+dta_m <- match.data(mod_match) 
+dtm <- merge(d2.appbis, dta_m[,c("PTID","distance","weights")], by="PTID", all=T)
+
 
 #-----------------
 # Checking balance : 
@@ -509,7 +515,7 @@ ggplot(data = dataPlotMelt, mapping = aes(x = variable, y = SMD,
 
 
 #METHODE 3 BIS standardized mean difference sans tableone
-smd <- summary(mod_match, standardize = TRUE)
+smd <- summary(mod_match, standardize = TRUE) #fait la balance pour chaque binaire tirée de la variable quali
 smd <- smd$sum.matched
 smd$var <- rownames(smd)
 smd$group <- "matched"
@@ -599,29 +605,14 @@ g
 #Analyse avec d2.app (methode David Hajage)
 d2.app$DEATH <- as.numeric(as.character(d2.app$DEATH))
 d2.app$SWAN <- as.numeric(as.character(d2.app$SWAN))
-clogit(DEATH~SWAN + cluster(paire), method="exact", data=d2.app) #marche pas
+clogit(DEATH~SWAN + cluster(paire), method="efron", data=d2.app) #marche avec efron
 coxph(Surv(rep(1, nrow(d2.app)),DEATH)~SWAN + cluster(paire), data=d2.app) #marche mais est-ce vraiment la même chose?
 glm(DEATH~SWAN, data=d2.app, family="binomial")
 glmer(DEATH~SWAN + (1|paire), data=d2.app, family = "binomial")
 
 
 
-
-table(table(dta_m$distance))
-
-#thiscommandsavesthedatamatched
-matches<-data.frame(mod_match$match.matrix)
-#matches<-dta_m
-#thesecommandsfindthematches.oneforgroup1oneforgroup2
-#NB : rownames is SWAN patient number, et la valeur est nonSWAN patient number
-group1<-match(row.names(matches), row.names(d))
-group2<-match(matches$X1, row.names(d))
-#thesecommandsextracttheoutcomevalueforthematches
-yT<-d$DEATH[group1]
-yC<-d$DEATH[group2]
-#binding
-matched.cases<-cbind(matches,yT,yC)
-matched.cases <- na.omit(matched.cases)
+#analyse avec mod_matchet dtm
 #Paired t-test
 t.test(as.numeric(matched.cases$yT), as.numeric(matched.cases$yC), paired = TRUE)
 
@@ -645,6 +636,7 @@ t.test(as.numeric(matched.cases$yT), as.numeric(matched.cases$yC), paired = TRUE
 # que faire des var quali : quand on selectionne var pour score de propension, quand on regarde la balance: transformer en bianaire? faire drop pour la selection? que plotter pour vérifier la balance? tableone plot qqch mais je ene sais pas quoi...
 #comment on met les paires dans le modèle?
 #lien avec la mort : regression logistique ou cox??
+#modele final : ne vaut-il pas mieux faire une analyse de survie??
 
 table(table(unique(d$ROWNAMES)))
 levels(d$CAT1)
