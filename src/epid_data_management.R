@@ -53,8 +53,8 @@ for (x in colnames(d)){
 
 #variables descriptives
 vardes <- c("AGE", "SEX", "RACE", "EDU", "INCOME", "NINSCLAS", "CAT1", "CAT2")
-var_quali <- c("SEX", "RACE", "INCOME", "NINSCLAS", "CAT1", "CAT2")
-var_quanti <- c("AGE","EDU")
+var_quali_des <- c("SEX", "RACE", "INCOME", "NINSCLAS", "CAT1", "CAT2")
+var_quanti_des <- c("AGE","EDU")
 
 
 var_outcome <- c("DEATH","SWANG1")
@@ -72,14 +72,14 @@ var_ad <- c("RESP", "CARD", "NEURO", "GASTR", "RENAL", "META", "HEMA", "SEPS", "
 
 
 
-#CA va poser problème pour le modèle linéaire car cancer oui sera comparé à métastase, alors que ce sont des cancers oui également
-#je veux aussi comparer cancer à pas de cancer
-d$CANCER <- NA
-d$CANCER <- ifelse (!is.na(d$CA) & (d$CA=="Yes" | d$CA=="Metastatic"), 1, d$CANCER)
-d$CANCER <- ifelse (!is.na(d$CA) & d$CA=="No" , 0, d$CANCER)
-d$METASTASE <- ifelse (!is.na(d$CA) & d$CA=="Metastatic", 1, d$CA) 
-d$METASTASE <- ifelse (!is.na(d$CA) & (d$CA=="Yes" | d$CA=="No"), 0, d$CA) 
-var_exam <- c(var_exam, "CANCER", "METASTASE")
+# #CA va poser problème pour le modèle linéaire car cancer oui sera comparé à métastase, alors que ce sont des cancers oui également
+# #je veux aussi comparer cancer à pas de cancer
+# d$CANCER <- NA
+# d$CANCER <- ifelse (!is.na(d$CA) & (d$CA=="Yes" | d$CA=="Metastatic"), 1, d$CANCER)
+# d$CANCER <- ifelse (!is.na(d$CA) & d$CA=="No" , 0, d$CANCER)
+# d$METASTASE <- ifelse (!is.na(d$CA) & d$CA=="Metastatic", 1, d$CA) 
+# d$METASTASE <- ifelse (!is.na(d$CA) & (d$CA=="Yes" | d$CA=="No"), 0, d$CA) 
+# var_exam <- c(var_exam, "CANCER", "METASTASE")
 
 colnames(d)[!colnames(d) %in% c(var_ad, var_exam, var_com, vardes, var_outcome)]
 #%2 variables ne sont pas dans le cahier des variables : T3D30(? de 2 à 30) et DTH30(0ou1, probablement décès à 30j)
@@ -97,7 +97,7 @@ d$ddn <- as_date(ifelse(is.na(d$DTHDTE), d$LSTCTDTE, d$DTHDTE))
 d$time <- as.numeric(d$ddn - d$SADMDTE)
 d$censor <- ifelse (!is.na(d$DTHDTE), 1, 0)
 
-
+d$SWANT <- ifelse(d$SWAN==1, T, F)
 
   
 # d$DEATH2 <- ifelse(!is.na(d$DTHDTE), 1, 0)
@@ -105,8 +105,8 @@ d$censor <- ifelse (!is.na(d$DTHDTE), 1, 0)
 
 #----------
 #Description
-t1 <- table_var_quali <- describe_qualitative(vec_var = var_quali, .data=d)
-t2 <- table_var_quanti <- describe_quantitative(vec_var = var_quanti, .data=d)
+t1 <- table_var_quali_des <- describe_qualitative(vec_var = var_quali_des_des, .data=d)
+t2 <- table_var_quanti_des <- describe_quantitative(vec_var = var_quanti_des, .data=d)
 t3 <- describe_qualitative(var_com, d)#idem # summary(apply(d[ ,var_com],2,as.factor))
 t4 <- describe_quantitative(var_exam, d)#summary(d[ ,var_exam])
 t5 <- describe_qualitative(c("CA","CANCER","DNR1"), d) 
@@ -142,36 +142,54 @@ ggsave(file="distrib bef dm.pdf", ml)
 print(ml)
 #-------------
 #verif
+HR0 <- ifelse(d$HRT1==0, "FC0", ifelse(!is.na(d$HRT1),0,NA))
+FC0 <- ifelse(d$RESP1==0, "FR0", ifelse(!is.na(d$RESP1),0,NA))
+TA0 <- ifelse(d$MEANBP1==0, "TA0", ifelse(!is.na(d$MEANBP1),0,NA))
+#pas de NA de toutes façons pour ces valeurs
+d$cleCR <- paste(HR0, FC0, TA0, sep="|")
+table(d$cleCR)
+d[d$cleCR=="FC0|FR0|0", c("HRT1", "RESP1", "MEANBP1", "DTH30", "SCOMA1", "TEMP1")]
+
+#"0|0|0" :aucune valeure ne vaut 0, ok
+#"0|0|TA0" : LA tension artérielle vaut 0 mais pas le reste : probable erreur de mesure
+d$MEANBP1 <- ifelse(d$cleCR=="0|0|TA0", NA, d$MEANBP1)
+#"0|FR0|0"  : réa probablement pas d'accord sur quoi mesurer faire en cas de respirateur : chercher variable respirateur, sinon garder telle quelle? 
+#"0|FR0|TA0" : TA 0 et respi 0, je mets la FC à 0 aussi
+d$HRT1 <- ifelse(d$cleCR=="0|FR0|TA0", 0, d$HRT1)
+#"FC0|0|0" : seul la FC vaut0 : erreur, FC =NA
+d$HRT1 <- ifelse(d$cleCR=="FC0|0|0", NA, d$HRT1)
+#"FC0|0|TA0" : probablement encore une histoire de respirateur : si TA et FC vaut 0, alors FR aussi   
+d$RESP1 <- ifelse(d$cleCR=="FC0|0|TA0", 0, d$RESP1)
+#"FC0|FR0|0" : quelq'un qui ne respire pas et n'a pas de pouls a une tenion nulle également
+d$MEANBP1 <- ifelse(d$cleCR=="FC0|FR0|0", 0, d$MEANBP1)
+#"FC0|FR0|TA0" : toutes les valeurs sont à 0 ok 
 
 #j'ai vérifié que d$DEATH idem que d$DEATH2 <- ifelse (!is.na(d$DTHDTE),1,0)
 
 #Attention! les schéma ne donnent pas les NA pour les var quantitatives!
 #Na : cat2, ADLD3P
-#var bizarres : EDU : 30ans?(p-e...) ; URIN1: 9L?
+#var bizarres : EDU : 30ans?(p-e...) ; URIN1: 9L? oui possible
 #HRT1 : 0, >20 et plus de 200 ; MEANBP1: pic à 80 et pic à 140, pression >200? pression=0;
-#RESP1 >50 ; temp1<30; weight=0 le min et 244 le max (ok pour 244 mais pas pour 0)
+#RESP1 >50 oui c'est possible; temp1<30 oui possible; weight=0 le min et 244 le max (ok pour 244 mais pas pour 0)
 
 #temp mini à 27° dans le fichier : c'est possible en cas d'hypothermie sévère (et hypothermie induite 30-32° parfois en réa dans cas particuliers)
 #http://www.srlf.org/wp-content/uploads/2015/11/0505-Reanimation-Vol14-N3-p177_185.pdf
 #var inconnues : surv2MD1, das2d3pc, t3d30, aps1, wblc1, pafi1
 d[d$URIN1==5000 & !is.na(d$URIN1), var_exam]
 #---------------
+#refaire en coupant SCOMA1 en classe et recuperer la courbe de survie pour var qualitative
 d$SCOMAsup90 <- ifelse(d$SCOMA1>90,1,0)
+d$SCOMAcut <- cut(d$SCOMA1, breaks=5)
 draw_surv_bin(var="SCOMAsup90", data=d, .time="time", .censor="censor", vec_time_IC= c(1, 3), type = "quali", surv_only=FALSE, pvalue = TRUE, dep_temps=FALSE, .transf=NULL)
-#plus score est élevé, plus le sujet meurt. 
+plot(d$SCOMA1, d$APS1) #le score APS ne nous aide pas
+#plus score est élevé, plus le risque de deces est eleve. 
+ggsurv(survfit(Surv(time, censor)~SCOMAcut, data=d), order.legend =FALSE)
 
 #Pas de doublons
 d[duplicated(d$PTID),]
 
-#recodage des var aberrantes:
+#recodage du poids:
 d$WTKILO1 <- ifelse(d$WTKILO1<25, NA, d$WTKILO1) #kilo max 244 ok (j'en ai vu)
-d$HRT1 <- ifelse(d$MEANBP1==0 & d$RESP1==0 & !is.na(d$RESP1) & !is.na(d$MEANBP1), 0, d$HRT1)
-d$MEANBP1 <- ifelse(d$HRT1==0 & d$RESP1==0 & !is.na(d$RESP1) & !is.na(d$HRT1), 0, d$MEANBP1)
-d$RESP1 <- ifelse(d$HRT1==0 & d$MEANBP1==0 & !is.na(d$HRT1) & !is.na(d$MEANBP1), 0, d$RESP1)
-
-d$HRT1 <- ifelse(d$HRT1==0 & d$MEANBP1!= 0 & d$RESP1!= 0 & !is.na(d$RESP1) & !is.na(d$HRT1) & !is.na(d$MEANBP1), NA, d$HRT1)
-d$MEANBP1 <- ifelse(d$MEANBP1==0 & d$HRT1!=0 & !is.na(d$HRT1) & !is.na(d$MEANBP1), NA, d$MEANBP1)
-d$RESP1 <- ifelse(d$RESP1==0 & !is.na(d$RESP1) & d$HRT1!=0 & !is.na(d$HRT1), NA, d$RESP1)
 
 #HRT1
 
@@ -184,8 +202,8 @@ d$RESP1 <- ifelse(d$RESP1==0 & !is.na(d$RESP1) & d$HRT1!=0 & !is.na(d$HRT1), NA,
 #refaire description
 
 #Description
-t1 <- table_var_quali <- describe_qualitative(vec_var = var_quali, .data=d)
-t2 <- table_var_quanti <- describe_quantitative(vec_var = var_quanti, .data=d)
+t1 <- table_var_quali_des <- describe_qualitative(vec_var = var_quali_des, .data=d)
+t2 <- table_var_quanti_des <- describe_quantitative(vec_var = var_quanti_des, .data=d)
 t3 <- describe_qualitative(var_com, d)#idem # summary(apply(d[ ,var_com],2,as.factor))
 t4 <- describe_quantitative(var_exam, d)#summary(d[ ,var_exam])
 t5 <- describe_qualitative(c("CA","CANCER","DNR1"), d) 
@@ -195,9 +213,9 @@ obj <- rbind(t1,t2,t3,t4,t5,t6,t7)
 write.table(print(obj), file="clipboard", sep="\t")
 
 # 
-# table_var_quali <- describe_qualitative(vec_var = var_quali, .data=d)
-# table_var_quanti <- describe_quantitative(vec_var = var_quanti, .data=d)
-# table_var <- rbind(table_var_quali,table_var_quanti)
+# table_var_quali_des <- describe_qualitative(vec_var = var_quali_des, .data=d)
+# table_var_quanti_des <- describe_quantitative(vec_var = var_quanti_des, .data=d)
+# table_var <- rbind(table_var_quali_des,table_var_quanti_des)
 # kable(table_var)
 # describe_qualitative(var_com, d)#idem # summary(apply(d[ ,var_com],2,as.factor))
 # describe_quantitative(var_exam, d)#summary(d[ ,var_exam])
@@ -235,6 +253,7 @@ d$DAS2D3PC
 #TESTS BIVARIES : 
 
 #avec swanganz
+
 list_swan <- lapply(c(var_ad, var_exam, var_com, vardes), function(x){
   #x <- "CA"
  # for (x in c(var_ad, var_exam, var_com, vardes)){
@@ -245,15 +264,19 @@ list_swan <- lapply(c(var_ad, var_exam, var_com, vardes), function(x){
   test <- summary(mod)
   #browser()
   if (nrow(coef(test))>2){ #cas variable explicative qualitative
-    for (i in (2:nrow(coef(test)))){
-      ab1 <- coef(test)[i, "Pr(>|z|)"]
-      ab <- if(i==2) ab1 else rbind(ab, ab1)
-    }
+    test <- drop1(mod, .~., test="Chisq")
+    ab <- test$`Pr(>Chi)`[2]
+    #SI on veut tester chaque classe, mais finalement je fais un drop 1
+    # for (i in (2:nrow(coef(test)))){
+    #   ab1 <- coef(test)[i, "Pr(>|z|)"]
+    #   ab <- if(i==2) ab1 else rbind(ab, ab1)
+    # }
     ab <- round(ab, 3)
     ab <- data.frame(ab)
     ab$signif <- ifelse(ab$ab<0.05,"*","") 
-    #ab$ab <- ifelse(ab$ab<0.001, "<0.001", ab$ab)
-    rownames(ab) <- paste(x, levels(d$var)[-1], "ref", levels(d$var)[1])
+    #ab$ab <- ifelse(ab$ab<0.001, "<0.001", ab$ab) #empeche de selectionner les bonnes variables après
+    #rownames(ab) <- paste(x, levels(d$var)[-1], "ref", levels(d$var)[1])
+    rownames(ab) <- x
   } else {
     #browser()
     ab <- coef(test)[2, "Pr(>|z|)"]
@@ -268,7 +291,6 @@ list_swan <- lapply(c(var_ad, var_exam, var_com, vardes), function(x){
  # }
   return(ab)
 })
-
 list_swan <- do.call(rbind, list_swan)
 
 list_death <- lapply(c(var_ad, var_exam, var_com, vardes), function(x){
@@ -281,15 +303,18 @@ list_death <- lapply(c(var_ad, var_exam, var_com, vardes), function(x){
   test <- summary(mod)
   #browser()
   if (nrow(coef(test))>2){ #cas variable explicative qualitative
-    for (i in (2:nrow(coef(test)))){
-      ab1 <- coef(test)[i, "Pr(>|z|)"]
-      ab <- if(i==2) ab1 else rbind(ab, ab1)
-    }
+    test <- drop1(mod, .~., test="Chisq")
+    ab <- test$`Pr(>Chi)`[2]
+    # for (i in (2:nrow(coef(test)))){
+    #   ab1 <- coef(test)[i, "Pr(>|z|)"]
+    #   ab <- if(i==2) ab1 else rbind(ab, ab1)
+    # }
     ab <- round(ab, 3)
     ab <- data.frame(ab)
     ab$signif <- ifelse(ab$ab<0.05,"*","") 
     #ab$ab <- ifelse(ab$ab<0.001, "<0.001", ab$ab)
-    rownames(ab) <- paste(x, levels(d$var)[-1], "ref", levels(d$var)[1])
+    #rownames(ab) <- paste(x, levels(d$var)[-1], "ref", levels(d$var)[1])
+    rownames(ab) <- x
   } else {
     #browser()
     ab <- coef(test)[2, "Pr(>|z|)"]
@@ -309,30 +334,37 @@ list_death <- do.call(rbind, list_death)
 
 list_pval <- cbind(list_swan, list_death)
 
-#prendre les valeurs : liées soit uniquement au décès, soit liées à la sonde et au décès 
+#prendre les valeurs : liées soit uniquement au décès, soit liées à la sonde et au décès (ce qui revient à prendre variable significative pour le décès ici) 
 list_pval$select <- ifelse (list_pval$`coef pvalue DEATH`<0.05, 1, 0)
-#list_pval$select <- ifelse (list_pval$`coef pvalue DEATH`<0.05 & list_pval$`coef pvalue SWAN`<0.05, 1, 0)
+#list_pval$select <- ifelse (list_pval$`coef pvalue DEATH`<0.05 & list_pval$`coef pvalue SWAN`<0.05, 1, 0) #ces variables sont déjà sélectionné par la ligne du dessus
 list_pval[list_pval$select==1, ]
 nrow(list_pval[list_pval$select==1, ])
-c(rownames(list_pval[list_pval$select==1,])[c(1:8,12:36)],"CA","INCOME","NINSCLAS","CAT1")
-
-varps <- c("RESP", "GASTR", "RENAL", "HEMA", "SEPS", "TRAUMA", "ADLD3P", "DAS2D3PC", "APS1",
-         "SCOMA1", "WTKILO1", "TEMP1", "MEANBP1", "PACO21", "PH1", "HEMA1", "POT1", "CREA1",
-         "BILI1", "ALB1", "CARDIOHX", "CHFHX", "DEMENTHX", "PSYCHHX", "CHRPULHX", 
-         "LIVERHX", "MALIGHX", "IMMUNHX", "TRANSHX", "AGE", "CANCER", "METASTASE", "INCOME", "NINSCLAS", "CAT1" )
-#, "URIN1" #bcp de NA
-
+dput(rownames(list_pval[list_pval$select==1,]))
+#c(rownames(list_pval[list_pval$select==1,])[c(1:8,12:36)],"CA","INCOME","NINSCLAS","CAT1")
+#dput(rownames(list_pval[list_pval$select==1, ])) #pour éviter de tout taper à la main!ya plus qu'à copier coller
+varps <- c("RESP", "GASTR", "RENAL", "HEMA", "SEPS", "TRAUMA", "ADLD3P", 
+           "DAS2D3PC", "DNR1", "CA", "SURV2MD1", "APS1", "SCOMA1", "WTKILO1", 
+           "TEMP1", "MEANBP1", "PACO21", "PH1", "HEMA1", "POT1", "CREA1", 
+           "BILI1", "ALB1", "URIN1", "CARDIOHX", "CHFHX", "DEMENTHX", "PSYCHHX", 
+           "CHRPULHX", "LIVERHX", "MALIGHX", "IMMUNHX", "TRANSHX", "AGE", 
+           "INCOME", "NINSCLAS", "CAT1", "CAT2")
+#cb de NA pour chaque colonne
+percNA <- round(apply(apply(d[,varps],2,is.na),2,sum)/nrow(d)*100,0)
+namesNA <- names(percNA[percNA>50])
+#je retire du score les variables avec plus de 50% de NA :ADLD3P, URIN1  et CAT2
+varps <- varps[!varps%in% namesNA]
 
 #----------------
 #score de propension
 ps <- glm(formula(paste0("SWAN ~ ",paste(varps,collapse="+"))), data = d, family="binomial")
-#d <- d[apply(apply(d[ ,varps], 2, is.na),1,sum)==0, ] #J'elimine les lignes avec au moins 1 NA
-#d$psvalue <- as.vector(predict(ps, type = "response"))
 
-prs_df <- data.frame(pr_score = predict(ps, type = "response"),
-                     SWAN = ps$model$SWAN)
+d2 <- d[apply(apply(d[ ,varps], 2, is.na),1,sum)==0, ] #J'elimine les lignes avec au moins 1 NA
+d2$logitps <- as.vector(predict(ps, type = "response")) #response is the default for binomial model
+
 
 #Histogramme du score de propension en fonction du groupe de traitement
+prs_df <- data.frame(pr_score = predict(ps, type = "response"), 
+                     SWAN = ps$model$SWAN)
 labs <- paste("actual intervention:", c("no SWAN-GANZ", "SWAN-GANZ"))
 prs_df %>%
   mutate(SWAN = ifelse(SWAN == 1, labs[2], labs[1])) %>%
@@ -344,15 +376,29 @@ prs_df %>%
 
 #---------------------
 #Analyse en utilisant la méthode des quantiles (non complet)
-QT <- quantile(prs_df$pr_score)
-prs_df$quantile <- ifelse (prs_df$pr_score<QT[2], 1, NA)
-prs_df$quantile <- ifelse (prs_df$pr_score>=QT[2] & prs_df$pr_score<QT[3], 2, prs_df$quantile)
-prs_df$quantile <- ifelse (prs_df$pr_score>=QT[3] & prs_df$pr_score<QT[4], 3, prs_df$quantile)
-prs_df$quantile <- ifelse (prs_df$pr_score>=QT[4] & prs_df$pr_score<QT[5], 4, prs_df$quantile)
-prs_df$quantile <- ifelse (prs_df$pr_score>QT[5], 5, prs_df$quantile)
 
+# QT <- quantile(prs_df$pr_score)
+# prs_df$quantile <- ifelse (prs_df$pr_score<QT[2], 1, NA)
+# prs_df$quantile <- ifelse (prs_df$pr_score>=QT[2] & prs_df$pr_score<QT[3], 2, prs_df$quantile)
+# prs_df$quantile <- ifelse (prs_df$pr_score>=QT[3] & prs_df$pr_score<QT[4], 3, prs_df$quantile)
+# prs_df$quantile <- ifelse (prs_df$pr_score>=QT[4] & prs_df$pr_score<QT[5], 4, prs_df$quantile)
+# prs_df$quantile <- ifelse (prs_df$pr_score>QT[5], 5, prs_df$quantile)
+
+d2$psgp <- cut(d2$logitps, breaks=quantile(d2$logitps, prob=0:4*0.25),
+                    labels=c("Q1","Q2","Q3","Q4"), right=FALSE, include.lowest=TRUE)
 
 #----------------
+#Appariemment sur le score de propension:
+
+#Matching :
+tmp <- Match(Tr = d2$SWANT, X = d2$logitps, M = 1, replace = FALSE, caliper = 0.2, ties = FALSE)
+
+d2.app <- d2[c(tmp$index.treated, tmp$index.control),]
+d2.app$paire <- rep(1:length(tmp$index.treated), 2)
+d2.app <- d2.app[order(d2.app$paire, d2.app$SWAN==1),]
+
+
+
 #MAtchit
 #https://stanford.edu/~ejdemyr/r-tutorials-archive/tutorial8.html#exercise
 #https://stanford.edu/~ejdemyr/r-tutorials-archive/matching.R
@@ -376,7 +422,7 @@ prs_df$quantile <- ifelse (prs_df$pr_score>QT[5], 5, prs_df$quantile)
 d_nomiss <- d[ ,c(varps,"SWAN","PTID")]
 d_nomiss <- na.omit(d_nomiss)
 mod_match <- matchit(formula(paste0("SWAN ~ ",paste(varps,collapse="+"))),
-                     method = "nearest", replace = FALSE, ratio = 1, m.order = "smallest", caliper=0.5, data = d_nomiss)
+                     method = "nearest", replace = FALSE, ratio = 1, m.order = "smallest", caliper=0.2, data = d_nomiss)
 
 summary(mod_match,standardize = TRUE)
 dta_m <- match.data(mod_match)
@@ -394,6 +440,7 @@ dtm <- merge(d[ ,c("PTID", names(d)[! names(d) %in% names(dta_m)])], dta_m, by="
 #a faire uniquement sur les variables servant à construire le score de propension, car permet de voir
 #si le score et le matching ont bien marché
 
+MatchBalance(formula(paste0("SWANT ~ ",paste(varps,collapse="+"))), data=d)
 #METHODE 1 : QQPLOT
 plot(mod_match)
 
@@ -549,12 +596,24 @@ g
 #http://r.iq.harvard.edu/docs/matchit/2.4-20/matchit.pdf
 
 
+#Analyse avec d2.app (methode David Hajage)
+d2.app$DEATH <- as.numeric(as.character(d2.app$DEATH))
+d2.app$SWAN <- as.numeric(as.character(d2.app$SWAN))
+clogit(DEATH~SWAN + cluster(paire), method="exact", data=d2.app) #marche pas
+coxph(Surv(rep(1, nrow(d2.app)),DEATH)~SWAN + cluster(paire), data=d2.app) #marche mais est-ce vraiment la même chose?
+glm(DEATH~SWAN, data=d2.app, family="binomial")
+glmer(DEATH~SWAN + (1|paire), data=d2.app, family = "binomial")
+
+
+
+
 table(table(dta_m$distance))
 
 #thiscommandsavesthedatamatched
 matches<-data.frame(mod_match$match.matrix)
 #matches<-dta_m
 #thesecommandsfindthematches.oneforgroup1oneforgroup2
+#NB : rownames is SWAN patient number, et la valeur est nonSWAN patient number
 group1<-match(row.names(matches), row.names(d))
 group2<-match(matches$X1, row.names(d))
 #thesecommandsextracttheoutcomevalueforthematches
@@ -585,6 +644,7 @@ t.test(as.numeric(matched.cases$yT), as.numeric(matched.cases$yC), paired = TRUE
 #comment checker la balance des variables qualitatives (tableone calcule une moyenne standardisée pour ces variables je ne vois pas comment?)
 # que faire des var quali : quand on selectionne var pour score de propension, quand on regarde la balance: transformer en bianaire? faire drop pour la selection? que plotter pour vérifier la balance? tableone plot qqch mais je ene sais pas quoi...
 #comment on met les paires dans le modèle?
+#lien avec la mort : regression logistique ou cox??
 
 table(table(unique(d$ROWNAMES)))
 levels(d$CAT1)
