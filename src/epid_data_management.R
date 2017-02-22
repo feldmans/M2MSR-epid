@@ -9,7 +9,7 @@ summary(d)
 d$SADMDTE <- as.Date(d$SADMDTE,"%d/%m/%Y") 
 d$DSCHDTE <- as.Date(d$DSCHDTE,"%d/%m/%Y") 
 d$DTHDTE <- as.Date(d$DTHDTE,"%d/%m/%Y") 
-d$LSTCTDTE <- as.Date(d$LSTCTDTE,"%d/%m/%Y") 
+d$LSTCTDTE <- as.Date(d$LSTCTDTE,"%d/%m/%Y")
 
 for (i in c("DEATH", "DTH30", "DNR1", "RESP", "CARD", "NEURO", "GASTR", "RENAL", "META", "HEMA", "SEPS", "TRAUMA", "ORTHO")) {
   d[ ,i] <- as.character(d[,i])
@@ -49,6 +49,8 @@ for (x in colnames(d)){
 # })
 # d2 <- data.frame(d2)
 
+#Je préfère que PTID soit un caractère pour éviter un gag si le numéro de ligne n'est pas le même que PTID
+d$PTID <- paste0("A", d$PTID)
 
 
 #variables descriptives
@@ -90,16 +92,28 @@ d[d$SWAN=="No RHC","SWAN"] <- 0
 d[d$SWAN=="RHC","SWAN"] <- 1
 d$SWAN <- as.factor(d$SWAN)
 d$DEATH <- as.factor(d$DEATH)
+
 var_outcome <- c(var_outcome, "SWAN")
 
 #var pour analyse de survie
+table(is.na(d$LSTCTDTE)) #pas de perdu de vu pour la date de dernier contact
 d$ddn <- as_date(ifelse(is.na(d$DTHDTE), d$LSTCTDTE, d$DTHDTE))
-d$time <- as.numeric(d$ddn - d$SADMDTE)
+d$time <- as.numeric(d$ddn - d$SADMDTE) #temps de suivi en j entre la date des dernières nouvelles (décès ou date de dernier contact)
 d$censor <- ifelse (!is.na(d$DTHDTE), 1, 0)
+#avant de recréer la variable DTH30, je vérifie que tous les sujets sont bien suivis au moins 30j
+table(d$time<30, d$censor) #j'ai 8 sujets qui sont perdus de vu avant 30 jours 
+namesDTH30_NA <- d[d$time<30 & d$censor==0, "PTID"]
+d$DTH30b <- NA
+d$DTH30b <- ifelse (d$time<=30 & d$censor==1, 1, d$DTH30b) 
+d$DTH30b <- ifelse (d$time>30, 0, d$DTH30b) 
+table(d$DTH30b)
+table(d$DTH30)
+#Je ne suis pas d'accord avec la variable DTH30 qui note 0 les sujets perdus de vu  avant 30 j. Ce serait ok pour un modele de survie prenant en compte de le temps de suivi mais
+#pas pour une régression logistique.
 
+#pour faire analyse de survie avec DTH30:
+d$timeb <- ifelse(d$time>30, 30, d$time)
 
-
-  
 # d$DEATH2 <- ifelse(!is.na(d$DTHDTE), 1, 0)
 # table(d$DEATH==d$DEATH2) #all true => Je peux utiliser l'une ou l'autre des variables, ont probablement été créées de la meme marnière
 
@@ -181,6 +195,7 @@ d[d$URIN1==5000 & !is.na(d$URIN1), var_exam]
 d$SCOMAsup90 <- ifelse(d$SCOMA1>90,1,0)
 d$SCOMAcut <- cut(d$SCOMA1, breaks=5)
 draw_surv_bin(var="SCOMAsup90", data=d, .time="time", .censor="censor", vec_time_IC= c(1, 3), type = "quali", surv_only=FALSE, pvalue = TRUE, dep_temps=FALSE, .transf=NULL)
+draw_surv_bin(var="SCOMAsup90", data=d, .time="timeb", .censor="DTH30", vec_time_IC= c(7, 14), type = "quali", surv_only=FALSE, pvalue = TRUE, dep_temps=FALSE, .transf=NULL, .scale="day")
 plot(d$SCOMA1, d$APS1) #le score APS ne nous aide pas
 #plus score est élevé, plus le risque de deces est eleve. 
 ggsurv(survfit(Surv(time, censor)~SCOMAcut, data=d), order.legend =FALSE)
@@ -299,7 +314,8 @@ list_death <- lapply(c(var_ad, var_exam, var_com, vardes), function(x){
   print(x)
   d$var <- d[,x]
   if (all(levels(as.factor(d$var)) %in% c(0,1))) d$var <- as.factor(d$var) 
-  mod <- glm(DEATH~var,d, family="binomial")
+  #mod <- glm(DEATH~var,d, family="binomial")
+  mod <- glm(DTH30b~var,d, family="binomial")
   test <- summary(mod)
   #browser()
   if (nrow(coef(test))>2){ #cas variable explicative qualitative
@@ -342,12 +358,23 @@ nrow(list_pval[list_pval$select==1, ])
 dput(rownames(list_pval[list_pval$select==1,]))
 #c(rownames(list_pval[list_pval$select==1,])[c(1:8,12:36)],"CA","INCOME","NINSCLAS","CAT1")
 #dput(rownames(list_pval[list_pval$select==1, ])) #pour éviter de tout taper à la main!ya plus qu'à copier coller
-varps <- c("RESP", "GASTR", "RENAL", "HEMA", "SEPS", "TRAUMA", "ADLD3P", 
-           "DAS2D3PC", "DNR1", "CA", "SURV2MD1", "APS1", "SCOMA1", "WTKILO1", 
-           "TEMP1", "MEANBP1", "PACO21", "PH1", "HEMA1", "POT1", "CREA1", 
-           "BILI1", "ALB1", "URIN1", "CARDIOHX", "CHFHX", "DEMENTHX", "PSYCHHX", 
-           "CHRPULHX", "LIVERHX", "MALIGHX", "IMMUNHX", "TRANSHX", "AGE", 
-           "INCOME", "NINSCLAS", "CAT1", "CAT2")
+
+#var avec DEATH
+# varps <- c("RESP", "GASTR", "RENAL", "HEMA", "SEPS", "TRAUMA", "ADLD3P", 
+#            "DAS2D3PC", "DNR1", "CA", "SURV2MD1", "APS1", "SCOMA1", "WTKILO1", 
+#            "TEMP1", "MEANBP1", "PACO21", "PH1", "HEMA1", "POT1", "CREA1", 
+#            "BILI1", "ALB1", "URIN1", "CARDIOHX", "CHFHX", "DEMENTHX", "PSYCHHX", 
+#            "CHRPULHX", "LIVERHX", "MALIGHX", "IMMUNHX", "TRANSHX", "AGE", 
+#            "INCOME", "NINSCLAS", "CAT1", "CAT2")
+
+#var avec DTH30b
+varps <- c("RESP", "CARD", "NEURO", "GASTR", "HEMA", "SEPS", "ADLD3P", 
+          "DAS2D3PC", "DNR1", "CA", "SURV2MD1", "APS1", "SCOMA1", "WTKILO1", 
+          "TEMP1", "MEANBP1", "PAFI1", "PACO21", "PH1", "WBLC1", "HEMA1", 
+          "CREA1", "BILI1", "ALB1", "URIN1", "CARDIOHX", "CHFHX", "DEMENTHX", 
+          "PSYCHHX", "CHRPULHX", "LIVERHX", "GIBLEDHX", "MALIGHX", "AGE", 
+          "INCOME", "NINSCLAS", "CAT1", "CAT2")
+
 #cb de NA pour chaque colonne
 percNA <- round(apply(apply(d[,varps],2,is.na),2,sum)/nrow(d)*100,0)
 namesNA <- names(percNA[percNA>50])
@@ -446,11 +473,40 @@ dtm <- merge(d2.appbis, dta_m[,c("PTID","distance","weights")], by="PTID", all=T
 #a faire uniquement sur les variables servant à construire le score de propension, car permet de voir
 #si le score et le matching ont bien marché
 
-MatchBalance(formula(paste0("SWANT ~ ",paste(varps,collapse="+"))), data=d)
+MatchBalance(formula(paste0("SWANT ~ ",paste(varps,collapse="+"))), data=d2) #package Matching
 #METHODE 1 : QQPLOT
 plot(mod_match)
 
 #METHODE 2 :moyenne pour chaque variable à chaque point de score de popension
+#Attention : les variables quali : penser à les transformer en binaire
+
+varps_quanti <- varps[sapply(varps, function(variable) length(levels(dtm[,variable]))<=2)]
+varps_quali <- varps[!varps%in% varps_quanti]
+
+#je transforme les variables qualitatives en binaire
+dbis <- dtm
+for (j in varps_quali){
+  num <- which(varps_quali==j)
+  a <- model.matrix( ~ dbis[ ,j])
+  #pour avoir un nom de variable reconnaissable dans les schéma (si on laisse tel quel ça donne dbis[ ,j] CHF par exemple)
+  colnames(a) <- gsub("dbis",j,  colnames(a))
+  colnames(a) <- gsub("\\[", "",  colnames(a))
+  colnames(a) <- gsub("\\]", "",  colnames(a))
+  colnames(a) <- gsub("\\,", "",  colnames(a))
+  colnames(a) <- gsub("j", "",  colnames(a))
+  colnames(a) <- gsub(" ", "_",  colnames(a))
+  #créer les  variables binaires
+  for (i in 1:(length(colnames(a))-1)){
+    dbis[ ,colnames(a)[i+1]] <- a[ ,i+1]
+  }
+  #créer un vecteur avec les noms de variables bianires crées
+  vec_tmp <- colnames(a)[-1]
+  vec_var <- if(num==1) vec_tmp else c(vec_tmp, vec_var) 
+}
+#retirer les variables qualitatives non binarisees
+dbis[ ,varps_quali] <- NULL
+
+#fonction qui plot la distribution des variables en fonciton du score de propension avant et après matching
 fn_bal <- function(dta, variable) {
   #browser()
   dta$variable <- dta[, variable]
@@ -463,28 +519,28 @@ fn_bal <- function(dta, variable) {
     theme_bw()
 }
 
-.l <- lapply(varps, function(variable){
+.l <- lapply(c(varps_quanti, vec_var), function(variable){
   print(variable)
-  num <- which(varps==variable)
-  if (num %% 2 != 0) fn_bal(dta_m, variable)
-  else fn_bal(dta_m, variable) + theme(legend.position = "none")
+  num <- which(c(varps_quanti, vec_var)==variable)
+  if (num %% 2 != 0) fn_bal(dbis, variable)
+  else fn_bal(dbis, variable) + theme(legend.position = "none")
 })
-#ml <- marrangeGrob(.l, nrow=3, ncol=2, widths = c(1, 0.85), top = NULL)
+
 ml <- marrangeGrob(.l, nrow=2, ncol=2, top = NULL)
-ggsave(file="distrib mean variables after matching.pdf", ml)
+ggsave(file="distrib mean variables after matching 20170222.pdf", ml)
 
 
 #METHODE 3 : Print mean difference 
 varps_noql <- varps[!varps %in% c("INCOME", "NINSCLAS", "CAT1")]
-dta_mQ <- dta_m[ ,c(varps_noql,"SWAN")]
+dta_mQ <- dtm[ ,c(varps_noql,"SWAN")]
 diff <- dta_mQ%>%
   group_by(SWAN) %>% 
   summarise_all(funs(mean))
 #https://cran.r-project.org/web/packages/tableone/vignettes/smd.html
 #https://github.com/kaz-yos/tableone/blob/1d47ec186b2e351937e5f9712dad3881380ab12e/vignettes/smd.Rmd
 
-tabUnmatched <- CreateTableOne(vars = c(varps,"SWAN"), strata = "SWAN", data = d, test = FALSE)
-tabMatched <- CreateTableOne(vars = c(varps,"SWAN"), strata = "SWAN", data = dta_m, test = FALSE)
+tabUnmatched <- CreateTableOne(vars = c(varps_noql,"SWAN"), strata = "SWAN", data = d2[ ,c(varps_noql,"SWAN")], test = FALSE)
+tabMatched <- CreateTableOne(vars = c(varps_noql,"SWAN"), strata = "SWAN", data = dta_mQ, test = FALSE)
 
 ## Construct a data frame containing variable name and SMD from all methods
 dataPlot <- data.frame(variable  = names(ExtractSmd(tabUnmatched)),
@@ -505,9 +561,10 @@ dataPlotMelt$variable <- factor(dataPlotMelt$variable,
                                 levels = varNames)
 
 ## Plot using ggplot2
-ggplot(data = dataPlotMelt, mapping = aes(x = variable, y = SMD,
+#voir quoi faire avec var quali
+ggplot(data = dataPlotMelt[dataPlotMelt$variable!= "SWAN", ], mapping = aes(x = variable, y = SMD,
                                           group = Method, color = Method)) +
-  geom_line() +
+  #geom_line() +
   geom_point() +
   geom_hline(yintercept = 0.1, color = "black", size = 0.1) +
   coord_flip() +
@@ -515,18 +572,20 @@ ggplot(data = dataPlotMelt, mapping = aes(x = variable, y = SMD,
 
 
 #METHODE 3 BIS standardized mean difference sans tableone
+#attention la transformation des var quali a l'air fausse, retirée pour l'instant mais à vérifier
+#rajouter unmatched
 smd <- summary(mod_match, standardize = TRUE) #fait la balance pour chaque binaire tirée de la variable quali
 smd <- smd$sum.matched
 smd$var <- rownames(smd)
 smd$group <- "matched"
-g <- ggplot(data = smd, aes(x=var, y= `Std. Mean Diff.`, group = group, color= group))
-g <- g + geom_point() + geom_line() + geom_hline(yintercept = 0.1, color="red", size=0.1) +
+g <- ggplot(data = smd[smd$var%in%varps,], aes(x=var, y= `Std. Mean Diff.`, group = group, color= group))
+g <- g + geom_point() + geom_hline(yintercept = 0.1, color="red", size=0.1) +
   coord_flip() + theme_bw() + theme(legend.key = element_blank())
-  
+g  
 
 
 #METHODE 4 IC à la main
-
+#voir comment calculer IC pou var quali binarisés
 getMIC <- function(.data){
   dt <- lapply(names(.data), function(var){
     num <- which(var==names(.data))
@@ -557,7 +616,7 @@ getMIC <- function(.data){
 }
 
 df <- getMIC(dta_m)
-df <- na.omit(df)
+df <- na.omit(df) #retire les var quali dont les IC n'ont pas été calculés
 head(df)
 
 m<-tapply(df$myy, df$var, mean)
