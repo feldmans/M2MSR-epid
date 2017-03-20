@@ -478,7 +478,7 @@ MatchBalance(formula(paste0("SWANT ~ ",paste(varps,collapse="+"))), data=d2) #pa
 plot(mod_match)
 
 #METHODE 2 :moyenne pour chaque variable à chaque point de score de popension
-#Attention : les variables quali : penser à les transformer en binaire
+#Attention : variables quali : il faut les transformer en binaire
 
 varps_quanti <- varps[sapply(varps, function(variable) length(levels(dtm[,variable]))<=2)]
 varps_quali <- varps[!varps%in% varps_quanti]
@@ -662,12 +662,17 @@ g
 
 
 #Analyse avec d2.app (methode David Hajage)
-d2.app$DEATH <- as.numeric(as.character(d2.app$DEATH))
+#d2.app$DEATH <- as.numeric(as.character(d2.app$DEATH))
+d2.app$DTH30b <- as.numeric(as.character(d2.app$DTH30b))
 d2.app$SWAN <- as.numeric(as.character(d2.app$SWAN))
-clogit(DEATH~SWAN + cluster(paire), method="efron", data=d2.app) #marche avec efron
-coxph(Surv(rep(1, nrow(d2.app)),DEATH)~SWAN + cluster(paire), data=d2.app) #marche mais est-ce vraiment la même chose?
-glm(DEATH~SWAN, data=d2.app, family="binomial")
-glmer(DEATH~SWAN + (1|paire), data=d2.app, family = "binomial")
+#clogit(DEATH~SWAN + cluster(paire), method="efron", data=d2.app) #marche avec efron
+clogit(DTH30b~SWAN + cluster(paire), method="efron", data=d2.app) #marche avec efron
+#coxph(Surv(rep(1, nrow(d2.app)),DEATH)~SWAN + cluster(paire), data=d2.app) #marche mais est-ce vraiment la même chose?
+coxph(Surv(rep(1, nrow(d2.app)),DTH30b)~SWAN + cluster(paire), data=d2.app) #marche mais est-ce vraiment la même chose?
+#glm(DEATH~SWAN, data=d2.app, family="binomial")
+glm(DTH30b~SWAN, data=d2.app, family="binomial")
+#glmer(DEATH~SWAN + (1|paire), data=d2.app, family = "binomial")
+glmer(DTH30b~SWAN + (1|paire), data=d2.app, family = "binomial")
 
 
 

@@ -14,11 +14,11 @@ describe_qualitative <- function(vec_var, .data){
       nNA <- table(is.na(data))
       pNA <- round(prop.table(table(is.na(data))),3)
       if (is.na(nNA[2]))  {
-        if (which(names_levels==x)==1) nNA <- paste0 (0," (0%)")
+        if (which(names_levels==x)==2) nNA <- paste0 (0," (0%)") #NA pour ligne 1
         else nNA <- ""
       }
       else {
-        if (which(names_levels==x)==1){
+        if (which(names_levels==x)==2){   #NA pour ligne 1
           nNA <- as.numeric (nNA[names(nNA)==TRUE])
           pNA <- as.numeric (pNA[names(pNA)==TRUE])*100
           nNA <- paste0(nNA," (",pNA,"%)")  
@@ -81,7 +81,17 @@ describe_quantitative <- function(vec_var, .data){
   return (table_var_quanti)
 }
 
-draw_surv_bin <- function(var, data, .time, .censor, vec_time_IC= c(1, 3), type = "quanti", surv_only=FALSE, pvalue = TRUE, dep_temps=FALSE, .transf=NULL) {
+describe_all <- function(var, data){
+  vec <- data[ ,var]
+  if (any(!is.na(as.numeric(as.character(vec)))) & length(levels(as.factor(vec))) != 2) res <- describe_quantitative(var, data)#génère warning si character
+  else res <- describe_qualitative(var, data)
+  return(res)
+}
+
+
+
+draw_surv_bin <- function(var, data, .time, .censor, vec_time_IC= c(1, 3), type = "quanti", surv_only=FALSE, pvalue = TRUE, dep_temps=FALSE, .transf=NULL, .scale="year") {
+  #browser()
   s <- data
   s$a <- s[ ,var]
   s <- s[!is.na(s$a),]
@@ -95,7 +105,9 @@ draw_surv_bin <- function(var, data, .time, .censor, vec_time_IC= c(1, 3), type 
   }
   
   s$censor <- s[ ,.censor]
-  s$tps <- (s[ ,.time]/365.25) + 0.001 # au cas ou un temps vaut 0 ce qui empêche survsplit de fonctionner
+  if(.scale=="year") s$tps <- (s[ ,.time]/365.25) + 0.001 # au cas ou un temps vaut 0 ce qui empêche survsplit de fonctionner
+  if(.scale=="month")s$tps <- (s[ ,.time]/12) + 0.0001 # au cas ou un temps vaut 0 ce qui empêche survsplit de fonctionner
+  if(.scale=="day") s$tps <- s[ ,.time] + 0.0001
   
   km <- survfit(Surv(tps,censor)~a_recode, data=s, conf.int=.95)
   km0 <- survfit(Surv(tps,censor)~a_recode, data=s[s$a_recode==0,], conf.int=.95)
@@ -117,15 +129,17 @@ draw_surv_bin <- function(var, data, .time, .censor, vec_time_IC= c(1, 3), type 
   sv <- summary(km0, time=vec_time_IC)
   df <- data.frame(time = sv$time, survival = sv$surv*100, LCI = sv$lower*100, UCI = sv$upper*100)
   df[,2:4] <- round(df[,2:4], 0)
-  cat(paste0("At ", df$time, " year, survival[95%CI] ", df$survival, "% [",df$LCI,"% - ",df$UCI, "%]\n"))
-  #cat(paste0("At ", df$time, " months, survival[95%CI] ", df$survival, "% [",df$LCI,"% - ",df$UCI, "%]\n"))
+  if(.scale=="year") cat(paste0("At ", df$time, " year, survival[95%CI] ", df$survival, "% [",df$LCI,"% - ",df$UCI, "%]\n"))
+  if(.scale=="month") cat(paste0("At ", df$time, " months, survival[95%CI] ", df$survival, "% [",df$LCI,"% - ",df$UCI, "%]\n"))
+  if(.scale=="day") cat(paste0("At ", df$time, " days, survival[95%CI] ", df$survival, "% [",df$LCI,"% - ",df$UCI, "%]\n"))
   
   cat(group1)
   sv <- summary(km1, time=vec_time_IC)
   df <- data.frame(time = sv$time, survival = sv$surv*100, LCI = sv$lower*100, UCI = sv$upper*100)
   df[,2:4] <- round(df[,2:4], 0)
-  cat(paste0("At ", df$time, " year, survival[95%CI] ", df$survival, "% [",df$LCI,"% - ",df$UCI, "%]\n"))
-  #cat(paste0("At ", df$time, " months, survival[95%CI] ", df$survival, "% [",df$LCI,"% - ",df$UCI, "%]\n"))
+  if(.scale=="year") cat(paste0("At ", df$time, " year, survival[95%CI] ", df$survival, "% [",df$LCI,"% - ",df$UCI, "%]\n"))
+  if(.scale=="month") cat(paste0("At ", df$time, " months, survival[95%CI] ", df$survival, "% [",df$LCI,"% - ",df$UCI, "%]\n"))
+  if(.scale=="day") cat(paste0("At ", df$time, " days, survival[95%CI] ", df$survival, "% [",df$LCI,"% - ",df$UCI, "%]\n"))
   
   
   if(surv_only==FALSE){
@@ -134,6 +148,12 @@ draw_surv_bin <- function(var, data, .time, .censor, vec_time_IC= c(1, 3), type 
     skm0 <- data.frame(time=skm0$time, n.risk=skm0$n.risk)
     skm1<-summary(km1, time=seq(0, 10, by=1))
     skm1 <- data.frame(time=skm1$time, n.risk=skm1$n.risk)
+    if(.scale=="day"){
+      skm0 <- summary(km0, time=seq(0, 30, by=10))
+      skm0 <- data.frame(time=skm0$time, n.risk=skm0$n.risk)
+      skm1<-summary(km1, time=seq(0, 30, by=10))
+      skm1 <- data.frame(time=skm1$time, n.risk=skm1$n.risk)
+    }
     
     #preparation legende
     if(type=="quali")leg<-str_sub(names(km$strata),-1,-1)
@@ -142,19 +162,46 @@ draw_surv_bin <- function(var, data, .time, .censor, vec_time_IC= c(1, 3), type 
     col <- hue_pal()(length(leg))
     
     #courbe de survie
+    if(.scale=="month"){
+      g <- ggsurv(km, CI=FALSE, order.legend=FALSE, surv.col=col, cens.col=col) +
+        #changement des axes
+        scale_x_continuous(breaks=seq(0,max(s$tps),12), labels=0:(length(seq(0,max(s$tps),12))-1)) +
+        scale_y_continuous(labels=percent) +
+        labs(x="Time of follow-up, months", title=.title) +
+        #changement legende
+        guides (linetype = FALSE) +
+        scale_colour_discrete( labels = leg) +
+        theme(legend.position="right", legend.title=element_blank()) +
+        #espace autour du schéma
+        theme(plot.margin = unit(c(1,1,3,2), "cm")) #top, right, bottom, left
+    }
+      
+    if(.scale=="year"){
     g <- ggsurv(km, CI=FALSE, order.legend=FALSE, surv.col=col, cens.col=col) +
       #changement des axes
       scale_x_continuous(breaks=seq(0,max(s$tps),1), labels=0:(length(seq(0,max(s$tps),1))-1)) +
-      #scale_x_continuous(breaks=seq(0,max(s$tps),12), labels=0:(length(seq(0,max(s$tps),12))-1)) +
       scale_y_continuous(labels=percent) +
       labs(x="Time of follow-up, year", title=.title) +
-      #labs(x="Time of follow-up, months", title=.title) +
       #changement legende
       guides (linetype = FALSE) +
       scale_colour_discrete( labels = leg) +
       theme(legend.position="right", legend.title=element_blank()) +
       #espace autour du schéma
       theme(plot.margin = unit(c(1,1,3,2), "cm")) #top, right, bottom, left
+    }
+    if(.scale=="day"){
+      g <- ggsurv(km, CI=FALSE, order.legend=FALSE, surv.col=col, cens.col=col) +
+        #changement des axes
+        #scale_x_continuous(breaks=seq(0,max(s$tps),1), labels=0:(length(seq(0,max(s$tps),1))-1)) +
+        scale_y_continuous(labels=percent) +
+        labs(x="Time of follow-up, days", title=.title) +
+        #changement legende
+        guides (linetype = FALSE) +
+        scale_colour_discrete( labels = leg) +
+        theme(legend.position="right", legend.title=element_blank()) +
+        #espace autour du schéma
+        theme(plot.margin = unit(c(1,1,3,2), "cm")) #top, right, bottom, left
+    }
     
     #intervalle de confiance
     for (i in 1:2) {
