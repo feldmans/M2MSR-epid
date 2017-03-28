@@ -95,7 +95,7 @@ table(d$DTHDTE < d$LSTCTDTE)
 d$LSTCTDTE <- as_date(ifelse(is.na(d$DTHDTE), d$LSTCTDTE, d$DTHDTE))
 #d$ddn <- as_date(ifelse(is.na(d$DTHDTE), d$LSTCTDTE, d$DTHDTE))
 
-#temps de suivi en j entre la date des dernières nouvelles (décès ou date de dernier contact)
+#temps de suivi en j entre la date des dernières nouvelles (décès ou date de dernier contact) et la date d'admission
 d$time <- as.numeric(d$LSTCTDTE - d$SADMDTE) 
 #avant d'utiliser la variable DTH30 dans une régression logistique, je vérifie que tous les sujets sont bien suivis au moins 30j. Si non, alors ils sont NA pour le décès et non pas 0 car on ne tient pas compte du temps.
 table(d$time<=30, d$DEATH) #j'ai 8 sujets qui sont perdus de vu avant 30 jours et non décédés
@@ -304,6 +304,22 @@ d[ , c("SCOMAsup90", "SCOMAcut")] <- NULL
 ```
 
 
+#Possible erreur des variables T3D30 et DTH30
+```{r}
+d[d$T3D30 != d$timeb, c("timeb", "time", "T3D30", "DEATH", "DTH30")]
+#      timeb time T3D30 DEATH DTH30
+# 453      4    4    30     0     0
+# 488      6    6    30     0     0
+# 2338    21   21    30     0     0
+# 2811    10   10    30     0     0
+# 2907     2    2    30     0     0
+# 4783     9    9    30     0     0
+# 5123    28   28    30     0     0
+# 5437     8    8    30     0     0
+
+```
+8 sujets sont notés comme ayant une durée de suivi de 30 jours, or ils sont en fait perdus de vu avant 30 jours. J'ai donc recré une variable durée de suivi, time,  qui est la différence entre entre la date des dernières nouvelles (décès ou date de dernier contact) et la date d'admission, et j'ai ensuite crée la variable timeb telle que si cette durée était supérieure à 30, elle prenait alors la valeur 30. en comparant la variable timeb à la variable T3D30, je vois que les variables sont égales 2 à 2 pour chaque sujets exceptés les 8 sujets dont j'ai parlé ci dessus. J'ai donc remplacé la valeur de T3D30 pour ces sujets là par la valeure de timeb.
+Ces 8 sujets sont notés comme n'ayant pas eu d'évènement à 30 jours. Cela ne pose pas de problème si l'on fait un modèle de Cox qui prend en compte les perdus de vue, mais je souhaitais faire une régression logistique conditionnelle et dans ce cas je ne peux pas dire que les 8 sujets perdus de vue avant 30 jours ne sont pas mort à 30 jours et je choisi donc de mettre une donnée manquante pour ces 8 valeurs
 
 # Description des variables
 
@@ -411,7 +427,7 @@ des_SWAN <- do.call(rbind, lapply(c(var_quali_des, var_quanti_des, var_atcd, var
 des_all <- do.call(rbind, lapply(c(var_quali_des, var_quanti_des, var_atcd, var_com, var_exam, var_ad), describe_all, d))
 des_tot <- cbind(des_noSWAN[ , 1], des_SWAN[ , 1], des_all[ , 1:2])
 des_tot <- des_tot[str_sub(rownames(des_tot), -1, -1)!=0, ] 
-kable(des_tot)
+#kable(des_tot)
 ```
 
 
@@ -641,6 +657,9 @@ A partir du score de propension, je vais apparier un sujet cathétériser avec u
 Je transforme les qualitatives en binaires. 
 
 ```{r}
+varps_quanti <- varps[sapply(varps, function(variable) length(levels(dtm[,variable]))<=2)]
+varps_quali <- varps[!varps%in% varps_quanti]
+
 #jeu apparié (package matching)
 dbis <- d2.app
 for (j in varps_quali){
@@ -733,37 +752,39 @@ varps_binaire <- varps_new[!varps_new%in% varps_quanti2]
 #METHODE 0 : 
 MatchBalance(formula(paste0("SWANT ~ ",paste(varps_new,collapse="+"))), data=d2_b, match.out=tmp) #package Matching
 
+```
+```{r}
 # #METHODE 1 : moyenne pour chaque variable à chaque point de score de ponpension
 # #pb : ne marche qu'avec le package matchit car il faut la variable distance
-# #Attention : variables quali : il faut les transformer en binaire
-# varps_quanti <- varps[sapply(varps, function(variable) length(levels(dtm[,variable]))<=2)]#levels des variables quanti non bianire=NULL donc lenght=0
-# varps_quali <- varps[!varps%in% varps_quanti]
-# 
-# 
-# #fonction qui plot la distribution des variables en fonction du score de propension avant et après matching
-# fn_bal <- function(dta, variable) {
-#   #browser()
-#   dta$variable <- dta[, variable]
-#   dta$SWAN <- as.factor(dta$SWAN)
-#   ggplot(dta, aes(x = distance, y = variable, color = SWAN)) +
-#     geom_point(alpha = 0.2, size = 1.5) +
-#     geom_smooth(method = "loess", se = F) +
-#     xlab("Propensity score") +
-#     ylab(variable) +
-#     theme_bw()
-# }
-# 
-# .l <- lapply(c(varps_quanti2, varps_binaire), function(variable){
-#   print(variable)
-#   num <- which(c(varps_quanti2, varps_binaire)==variable)
-#   if (num %% 2 != 0) fn_bal(dtm_b, variable)
-#   else fn_bal(dtm_b, variable) + theme(legend.position = "none")
-# })
-# 
-# ml <- marrangeGrob(.l, nrow=2, ncol=2, top = NULL)
-# ggsave(file="distrib mean variables after matching 20170320.pdf", ml)
+
+#fonction qui plot la distribution des variables en fonction du score de propension avant et après matching
+fn_bal <- function(dta, variable) {
+  #browser()
+  dta$variable <- dta[, variable]
+  dta$SWAN <- as.factor(dta$SWAN)
+  ggplot(dta, aes(x = distance, y = variable, color = SWAN)) +
+    geom_point(alpha = 0.2, size = 1.5) +
+    geom_smooth(method = "loess", se = F) +
+    xlab("Propensity score") +
+    ylab(variable) +
+    theme_bw()
+}
+
+.l <- lapply(c(varps_quanti2, varps_binaire), function(variable){
+  print(variable)
+  num <- which(c(varps_quanti2, varps_binaire)==variable)
+  if (num %% 2 != 0) fn_bal(dtm_b, variable)
+  else fn_bal(dtm_b, variable) + theme(legend.position = "none")
+})
+
+ml <- marrangeGrob(.l, nrow=2, ncol=2, top = NULL)
+ggsave(file="distrib mean variables after matching 20170320.pdf", ml)
 
 #============================
+
+```
+
+```{r}
 #METHODE 2 : standardized mean difference avec matchit (variance du groupe traitement)
 
 #https://cran.r-project.org/web/packages/tableone/vignettes/smd.html
@@ -800,6 +821,9 @@ mysd <- as.numeric(by(d2[,"AGE"], d2$SWAN, sd))
 #et les variables quali sont transformées en k variables binaire et non k-1, avec k le nombre de classes.
 
 #============================
+
+```
+```{r}
 #METHODE 2 BIS standardized mean difference avec variance commune
 
 #-----
@@ -820,7 +844,7 @@ smd_bin_um <- data.frame(smd = sapply(varps_binaire, function(x){
   #mysmd <- (mymean[2]- mymean[1])/mysd[2]
   return(mysmd)
 }), variable = varps_binaire)
-smdum <- rbind(smd_quanti, smd_bin)
+smdum <- rbind(smd_quanti_um, smd_bin_um)
 
 #-----
 #matched
@@ -843,7 +867,9 @@ smd_bin_m <- data.frame(smd = sapply(varps_binaire, function(x){
 }), variable = varps_binaire)
 smdm <- rbind(smd_quanti_m, smd_bin_um)
 
+#-----
 #construction du plot
+
 #quanti
 dataplot <- data.frame(variable = smd_quanti_m$variable, unmatched = smd_quanti_um$smd, matched = smd_quanti_m$smd)
 dataplotmelt <- melt(data = dataplot, id.vars = "variable", variable.name = "Method", value.name = "SMD")
@@ -856,6 +882,7 @@ ggplot(data = dataplotmelt[!dataplotmelt$variable %in% c("distance","SWAN"), ],
        mapping = aes(x = variable, y = SMD, group = Method, color = Method)) +
   geom_point() +  geom_hline(yintercept = 0.1, color = "red", size = 0.1) +
   coord_flip() +  theme_bw() + theme(legend.key = element_blank(), legend.title = element_blank())
+
 #binaire
 dataplot <- data.frame(variable = smd_bin_m$variable, unmatched = smd_bin_um$smd, matched = smd_bin_m$smd)
 dataplotmelt <- melt(data = dataplot, id.vars = "variable", variable.name = "Method", value.name = "SMD")
@@ -870,16 +897,19 @@ ggplot(data = dataplotmelt[!dataplotmelt$variable %in% c("distance","SWAN"), ],
   coord_flip() +  theme_bw() + theme(legend.key = element_blank(), legend.title = element_blank())
 
 #=============================
+```
+
+```{r}
 
 #METHODE 3 IC à la main
 #voir comment calculer IC pou var quali binarisés
-getMIC <- function(.data){
-  dt <- lapply(names(.data)[names(.data) %in% varps_new], function(var){
-    num <- which(var==names(.data)[names(.data) %in% varps_new])
+getMIC_quanti <- function(.data, .vec_group){ #.vec_group en 0/1
+  dt <- lapply(names(.data), function(var){
+    num <- which(var==names(.data))
     #standardisation
     .data[,var] <- (.data[,var] - mean(.data[,var]))/sd(.data[,var])  
     
-    x <- .data[.data$SWAN == 1, var]
+    x <- .data[.vec_group == 1, var]
     df1 <- data.frame(mymean = mean(x),
                       ICminSG = mean(x) - 1.96*sqrt(var(x)/nrow(.data)),
                       ICmaxSG = mean(x) + 1.96*sqrt(var(x)/nrow(.data)),
@@ -887,7 +917,7 @@ getMIC <- function(.data){
                       groupe = "SWAN",
                       colour = 1)
     
-    x <- .data[.data$SWAN == 0, var]
+    x <- .data[.vec_group == 0, var]
     df0 <- data.frame(mymean = mean(x),
                       ICminSG = mean(x) - 1.96*sqrt(var(x)/nrow(.data)),
                       ICmaxSG = mean(x) + 1.96*sqrt(var(x)/nrow(.data)),
@@ -902,8 +932,67 @@ getMIC <- function(.data){
   return(dt)
 }
 
+getMIC_quali <- function(.data, .vec_group){
+ 
+  dt <- lapply(names(.data), function(var){
+    num <- which(var==names(.data))
+    print(num)
+    # #standardisation
+    # .data[,var] <- (.data[,var] - mean(.data[,var]))/sd(.data[,var])  
+    
+    x <- .data[.vec_group == 1, var]
+    P <- as.numeric(prop.table(table(x))[2]) #length(x[x==1])/length(x)
+    if(!is.na(P) & (nrow(.data) * P) >= 5 & (nrow(.data) * (1-P)) >= 5){
+      df1 <- data.frame(myfreq = P,
+                        ICminSG = P - 1.96*sqrt(P*(1-P)/nrow(.data)),
+                        ICmaxSG = P + 1.96*sqrt(P*(1-P)/nrow(.data)),
+                        myy = num*2-0.5,
+                        np = nrow(.data) * P,
+                        nq = nrow(.data) * (1-P),
+                        groupe = "SWAN",
+                        colour = 1)
+    } else {
+      df1 <- data.frame(myfreq = P,
+                        ICminSG = NA, ICmaxSG = NA,
+                        myy = num*2-0.5,
+                        np = nrow(.data) * P,
+                        nq = nrow(.data) * (1-P),
+                        groupe = "SWAN",
+                        colour = 1)
+    }
+    
+    
+    x <- .data[.vec_group == 0, var]
+    P <- as.numeric(prop.table(table(x))[2])
+    if(!is.na(P) & (nrow(.data) * P) >= 5 & (nrow(.data) * (1-P)) >= 5){
+      df0 <- data.frame(myfreq = P,
+                        ICminSG = P - 1.96*sqrt(P*(1-P)/nrow(.data)),
+                        ICmaxSG = P + 1.96*sqrt(P*(1-P)/nrow(.data)),
+                        myy = num*2+0.5,
+                        np = nrow(.data) * P,
+                        nq = nrow(.data) * (1-P),
+                        groupe = "NO SWAN",
+                        colour = 2)
+    } else {
+      df0 <- data.frame(myfreq = P,
+                        ICminSG = NA, ICmaxSG = NA,
+                        myy = num*2-0.5,
+                        np = nrow(.data) * P,
+                        nq = nrow(.data) * (1-P),
+                        groupe = "NO SWAN",
+                        colour = 2)
+    } 
+    
+    df <- rbind(df1,df0)
+  })
+  dt <- do.call(rbind, dt)
+  dt$var <- rep(names(.data), each=2)
+  return(dt)
+}
+
 #plot des var quanti
-df <- getMIC(d2_app_b[ ,c("SWAN", varps_quanti2)])
+#df <- getMIC_quanti(d2_app_b[ ,c("SWAN", varps_quanti2)])
+df <- getMIC_quanti(d2_app_b[ ,c(varps_quanti2)], d2_app_b$SWAN)
 df <- na.omit(df) #retire les var quali dont les IC n'ont pas été calculés
 
 m<-tapply(df$myy, df$var, mean)
@@ -930,7 +1019,7 @@ for (i in 1:nrow(df)){
 g
 
 #plot des var binaire
-df <- getMIC(d2_app_b[ ,c("SWAN", varps_binaire)])
+df <- getMIC_quali(d2_app_b[ ,varps_binaire], d2_app_b$SWAN)
 df <- na.omit(df) #retire les var quali dont les IC n'ont pas été calculés
 
 m<-tapply(df$myy, df$var, mean)
@@ -944,10 +1033,9 @@ laby<-unique(df2$var)
 
 col <- hue_pal()(length(1:2))
 
-g <- ggplot(data=df2, aes(x=mymean, xmin = ICminSG, y = y, xend = ICmaxSG, colour=groupe)) + geom_point() 
+g <- ggplot(data=df2, aes(x=myfreq, xmin = ICminSG, y = y, xend = ICmaxSG, colour=groupe)) + geom_point() 
 g <- g + labs(y = "variable")
 g<-g+scale_y_continuous(name="Variables", breaks=m$y, labels=m$var)
-g
 
 for (i in 1:nrow(df)){
   g <- g + geom_segment(x = df2$ICminSG[i], y = df2$y[i], xend = df2$ICmaxSG[i], yend = df2$y[i], colour = col[df2$colour[i]])
@@ -955,13 +1043,320 @@ for (i in 1:nrow(df)){
   g <- g + geom_segment(x = df2$ICmaxSG[i], y = df2$y[i]-0.5, xend = df2$ICmaxSG[i], yend = df2$y[i]+0.5, colour = col[df2$colour[i]])
 }
 g
-
 ```
 
 Tout d'abord, je transforme mes variables qualitatives en n-k variables binaires, k étant le nombre de classe de la variable qualitative.  
 J'ai ensuite plusieurs méthodes possibles pour regarder si l'appariemment a équilibré la distribution des variables dans le groupe traité et non traité : 
 -  je peux regarder la moyenne de chaque variable en fonction du score de popension. Je vois donc pour des patients de ces 2 groupes ayant la même probabilité d'être traité, si la moyenne de la variable est semblable. Bien sûr si les courbes se superposent parfaitement, on peut dire que la distribution est semblable dans les deux groupes.Si elles sont disjointes à certaines valeures d'abscisse, nous pouvont dire que pour les individus ayant tel probabilité d'être traité, la moyenne des variables diffèrent. Ainsi dans les courbes présentées en annexe, on voit ainsi que les individus avec une forte probabilité d'être traité ont une moyenne qui semble différer entre les deux groupes pour INCOME, NINCLAS, RESP et SEPS, et que les individus avec une faible probabilité d'être traité ont une moyenne qui semble différer poyr les variables RESP, HEMA et DNR1.  Or il me semble qu'on ne cherche pas à ce que les individus ayant la même probabilité d'être traité soit exactement semblable 2 à 2 (même si bien sûr c'est idéal) mais plutôt que les populations des groupes traités et non traités soit homogène, comme c'est le cas lorsque l'on randomise. Il me semble donc plus pertinent de voir si globablement les distribution sont les mêmes dans les deux groupes, et les deux méthodes présentées ci dessous répondent à cette question.  
--  je regarde la différence standardisée des moyennes(smd), c'est à dire la différence entre la moyenne dans le groupe cathétérisé et la moyenne dans le groupe non cathétérisé divisé par la variance commune. J'ai séparé les schémas en variable binaire et variable quantitative non binaire pour plus de visibilité. En instaurant un seuil de smd à 0.1 comme conseillé dans la littérature, je vois que l'appariemment établi un équilibre entre les deux groupes pour toutes les variables. 
+-  Je regarde la différence standardisée des moyennes(smd), c'est à dire la différence entre la moyenne dans le groupe cathétérisé et la moyenne dans le groupe non cathétérisé divisé par la variance commune. J'ai séparé les schémas en variable binaire et variable quantitative non binaire pour plus de visibilité. En instaurant un seuil de smd à 0.1 comme conseillé dans la littérature, je vois que l'appariemment établi un équilibre entre les deux groupes pour toutes les variables. 
+-  Je regarde les intervalles de confiances des différentes variables, j'ai réalisé les intervalles de confiance des moyennes pour les variables quantitatives et des fréquences de 1 pour les variables binaires (qui sont en 0/1). Les variables quantitatives sont standardisées, ce qui permet une lecture plus aisée du graphique des variables quantitatives. Je ne sais pas comment réaliser un équivalent de cette standardisation avec les variables binaires et le graphique est donc moins facillement analysable. A noter que les variables pour lesquelles on n'a pas pu calculer d'intervalle de confiance pour non respect des conditions de validité (np>=5 et n(1-p)>=5) ne sont pas présente dans le graphe. On voit cependant là aussi que les variables sont plutôt bien équilibrée après appariemment.
+
+Dans le futur, je préférerai quand même l'analyse de l'équilibre par la méthode smd, j'ai d'ailleurs pu voir qu'elle était souvent utilisée dans les publications.
 
 
+# Analyses dans la population appariée
+
+```{r, eval = FALSE}
+#analysis
+#http://imai.princeton.edu/research/files/matchit.pdf
+#journals.sfu.ca/jmde/index.php/jmde_1/article/download/431/414
+#http://r.iq.harvard.edu/docs/matchit/2.4-20/matchit.pdf
+
+
+#Analyse avec d2.app = package Matching (methode David Hajage)
+
+
+
+#d2.app$DEATH <- as.numeric(as.character(d2.app$DEATH))
+d2.app$DTH30b <- as.numeric(as.character(d2.app$DTH30b))
+d2.app$SWAN <- as.numeric(as.character(d2.app$SWAN))
+#clogit(DEATH~SWAN + cluster(paire), method="efron", data=d2.app) #marche avec efron
+#clogit(DTH30b~SWAN + cluster(paire), method="efron", data=d2.app) #marche avec efron
+mod1 <- clogit(DTH30b~SWAN + strata(paire), method="efron", data=d2.app) #marche avec efron
+exp(coefficients(mod1))
+exp(confint(mod1))
+
+#coxph(Surv(rep(1, nrow(d2.app)),DEATH)~SWAN + cluster(paire), data=d2.app) #marche mais est-ce vraiment la même chose?
+coxph(Surv(rep(1, nrow(d2.app)),DTH30b)~SWAN + cluster(paire), data=d2.app) #marche mais est-ce vraiment la même chose?
+#glm(DEATH~SWAN, data=d2.app, family="binomial")
+glm(DTH30b~SWAN, data=d2.app, family="binomial")
+#glmer(DEATH~SWAN + (1|paire), data=d2.app, family = "binomial")
+glmer(DTH30b~SWAN + (1|paire), data=d2.app, family = "binomial")
+```
+
+Pour répondre à la question "le cathétérisme cardiaque droit modifie-t-il la survie à 30 jours?", je peux utiliser deux méthodes différentes. Soit j'utilise une régression logistique conditionnelle, soit j'utilise un modèle de Cox. Dans les deux cas, j'utilise mon échantillon apparié et je stratifie sur le numéro de paire.
+
+## Régression logistique conditionnelle
+
+La variable à expliquer est la mort à 30 jours, la variable explicative est le cathétérisme cardiaque et je stratifie sur le paire.
+
+```{r}
+d2.app$DTH30b <- as.numeric(as.character(d2.app$DTH30b))
+d2.app$SWAN <- as.numeric(as.character(d2.app$SWAN))
+mod1 <- clogit(DTH30b~SWAN + strata(paire), method="efron", data=d2.app) #marche avec efron
+exp(coefficients(mod1))
+exp(confint(mod1))
+```
+
+Les conditions de validité sont respectées, j'ai plus de 5 à 10 évènements par variable explicative.
+Le coefficient du cathétérisme est significatif (pvalue<0.01), le cathétérisme cardiaque droit a donc un effet significatif sur le risaue de décès à 30 jours. le coeffcient vaut 0.17, l'exponentiel du coefficient me permet d'obtenir l'Odds ratio du risque de décès associé au cathétérisme. L'OR est de 1.19 avec un intervalle de confiance à 95% [1.05-1.34]. Le décès n'est pas un évènement rare, je ne peux donc pas interpréter l'OR comme un RR mais je peux dire que le risque de décès est augmenté lorsque le patient est cathétérisé.
+
+## Modèle de Cox
+
+```{r}
+    #nombre de strates
+    length(unique(d2.app$paire))
+    #nombre d'évènement
+    #nombre de strates sans evenements
+    noevt <- aggregate(d2.app[ ,c("paire", "DTH30b")], by = list(d2.app$paire), sum)
+    prop.table(table(noevt$DTH30b))
+    
+```
+
+Une deuxième manière de réaliser le calcul est par modèle de cox. Dans ce cas il est problématique de prendre en compte l'appariemment par une stratification sur la paire car FE Harrell nous précise dans son livre Regression Modeling Strategies(2nd Ed) p.482 que si le nombre de strates est très grand par rapport au nombre total d'évènement, on perd en efficience(? "Loss of efficiency" dans le texte). Or on a ici 1569 paires ou strates pour 1055 évènements, ce qui peut être considéré comme un grand nombre de strates relativement au nombre d'évènements bien qu'aucun seuil ne soit précisé. Et de plus FE Harrell nous précise qu'une strate qui ne contient aucun évènement ne contribue pas à l'information et qu'une telle situation doit donc être évitée si possible. Or ici 44% des paires sont sans évènements et ne contribue pas à l'information avec donc j'imagine une perte de puissance. 
+J'utiliserai donc l'option cluster(paire) plutôt que strata(paire) pour prendre en compte l'appariemment dans le modele de cox. Cette option prend en compte le design apparié, et on regarde alors la variance robuste et le test du score robuste. Cette méthode calcule une vraisemblance globale et non pas strate par strate comme lorsque l'on stratifie, évitant donc de perdre de l'information. 
+
+A noter que contrairement à la régression logstique conditionnelle, les sujets perdus avant 30 jours sont gérés par le modèle de cox. Cependant je préfère garder le même échantillon de patients que pour la régression logistique conditionnelle en prenant la variable décès à 30 jours modifiée telle que les patients perdus de vu avant 30 jours sont manquant pour le statut(les sujets ayant un statut manquant sont automatiquement retirés de l'analyse, comme pour le modèle de régression logistique). 
+
+
+```{r}
+mod2 <- coxph(Surv(timeb,DTH30b) ~ SWAN + cluster(paire), data=d2.app) #J'utilise DTH30b afin d'avoir le même échantillon que pour la régression logistique conditionnelle.
+  z <- cox.zph(mod2, transform = "rank")
+  cat("Test de Harrell\n\n")
+  print(z)
+  pval <- round(z$table[,3],3)
+  cat(paste0("\nTest de Harrell p value: ", pval))
+  #non signif si p>=0.05 (condition respectée qd non signif)
+  
+  #résidus de Shoenfeld
+  z <- cox.zph(mod2, transf="identity")
+  plot(z, main="Résidus de Shoenfeld", lwd=1)
+  abline(h=0, col="red")
+  abline(h=coef(mod2), col="blue")
+  text(x = (max(d2.app$timeb)*1/3), y = z$table[,1], labels = paste0("Harrell test p = ", pval))
+
+  #transformation en fonction du temps
+  #decoupage par les temps d'evenement
+   ti <- sort(unique(c(0,d2.app$timeb[d2.app$DTH30b==1])))
+  slat <- d2.app
+  slat$start <- 0
+  slat$stop <- slat$timeb
+  slat$evt <- slat$DTH30b
+  slat <- survSplit(Surv(stop,evt)~.,slat,start="start",cut=ti)
+  
+  #variable dependante du temps
+  slat$at<-slat$SWAN*sqrt(slat$stop)
+  slat$at<-slat$SWAN/(slat$stop)
+  slat$at <-slat$SWAN*log10(slat$stop)
+  slat$at <-slat$SWAN*(slat$stop^0.3)
+  slat$at <-slat$SWAN*(slat$stop^0.7)
+  slat$at <-slat$SWAN*log(slat$stop)
+  slat$at <-slat$SWAN*(slat$stop^3)
+  slat$at <-slat$SWAN*(slat$stop^2)
+  slat$at <-slat$SWAN*(slat$stop)
+  #et idem avec : log, *t, ^2, ^3, ^0.7
+  
+  #verification de la significativité de la variable dependante du temps
+  coxt <- coxph(Surv(start, stop, evt) ~ SWAN + at + cluster(paire), data=slat)
+  test <- summary(coxt)
+  pval_at <- test$coefficients["at","Pr(>|z|)"] #si <0.05 on peut regarder les courbesm sinon inutiles
+  pval_at
+  #Les test des coef des variables dépendantes du temps sont sup à 0.05 pour toutes les transformations (donc les transformations ne conviennent pas)
+  
+  
+  #aucune transformation ne convient mais voici quand même les codes pour revérifier les conditions si j'avais trouvé une transformation convenable à l'étape précédente
+      zt <- cox.zph(coxt, transf="identity")
+    for (i in 1:(nrow(zt$table)-1)){
+      iz<-i
+      plot(zt[iz])
+      abline(h=0, col="red") #l'intervalle de confiance doit contenir 0 en tout abscisse, et ce pour les résidus de swan et de swan dépendant du temps.
+    }
+       zit <- cox.zph(coxt, transform = "rank")
+    pval <- round(zit$table[,3],3)
+    #Les 3 p doivent etre >=0.05 
+    
+    
+    # #interpretation que j'aurai faite si j'avais trouvé une transformation satisfaisante
+    # mod <- coxph(Surv(timeb, DTH30b) ~ SWAN + at +  strata(paire), data = slat)
+    # test <- summary (mod)
+    # 
+    # S <- vcov(mod)
+    # b <- coef(mod)
+    # t <- 15 #choisir le temps en jours
+    # transf <- "*t^0.3" 
+    # if (transf=="*t^0.7") t_t <- t^0.7
+    # if (transf=="log") t_t <- log(t)
+    # if (transf=="*t^2") t_t <- t^2 
+    # if (transf=="*t") t_t <- t
+    # if (transf=="*t^3") t_t <- t^3
+    # if (transf=="*t^0.3") t_t <- t^0.3
+    # 
+    # variance <- S[1,1]+S[2,2]*(t_t)^2+2*S[1,2]*(t_t)
+    # m <- b[1]+b[2]*(t_t) #coef de l'HR
+    # 
+    # 
+    # cat(paste0("\n\nScore test: ", round(test$sctest["pvalue"],3)))
+    # HR <- round(exp(m),3)
+    # IC <- round(exp(m + qnorm(0.975)*sqrt(variance) * c(-1,1)),3)
+    # cat(paste0("\nHR[95%CI] = ",HR, " [", IC[1], "-", IC[2], "] ", "pour t = ", t, " jours" ))
+
+# Interpretation du modèle de cox sans transformation 
+    mod2 <- coxph(Surv(timeb,DTH30b) ~ SWAN + cluster(paire), data=d2.app) #J'utilise DTH30b afin d'avoir le même échantillon que pour la régression logistique conditionnelle.
+    test <- summary (mod2)
+    test$robscore[3]
+#calcul du HR et de l'intervalle de confiance en utilisant la variance robuste. J'ai plus de 30 sujets je peux donc faire une approximation par la loi normale, d'après le théorème central limite et utiliser cette formule : 
+    cHR <- test$coef[1]
+    sr <- test$coef[4] #racine de la variance robuste
+    error <- qnorm(0.975)*sr/sqrt(nrow(d2.app))
+    ICl <- cHR-error
+    ICu <- cHR+error
+    paste(round(exp(c(cHR, ICl, ICu)),3))
+```
+L'hypothèse des risques proportionnels n'est pas vérifiée. En effet l'intervalle de confiance des résidus de shoenfeld n'incluent pas 0 en tous points. Il faut donc en toute rigueur que j'ajoute une variable SWAN dépendante du temps. Cependant je n'ai pas trouvé de transformation qui convienne, aucun coefficient de paramètre dépendant du temps n'étant significatif lorsqu'on l'ajoute au modèle (les résidus de Shoenfeld des modèles ne doivent donc même pas être regardés). Voici les transformations essayeées : log, racine carrée, *temps, 1/temps, racine cube, carré, cube et puissance de 0.7.  J'analyse donc le modèle de Cox sans ajouter de variable dépendante du temps, mais il faudra avoir en tête que le résultat est erroné.
+
+L'ajout d'un cluster sur la paire me permet d'avoir une variance robuste prenant en compte l'appariemment. J'utilise cette variance robuste pour calculer l'intervalle de confiance à 95% du Hazard ratio: 1.236 [1.233-1.239]. Je regarde le test du score robuste pour conclure : p<0.001. Le risque de décès est donc significativement différent selon que le patient est cathétérisé ou non. Et c'est dans le sens d'un risque plus grand chez les patients cathétérisés avec un risque de décès à 30 jours multiplié par 1.236.
+
+Je retrouve cette information graphiquement en traçant une courbe de survie en fonction du traitement par cathéterisme cardiaque droit.
+
+## Représentation graphique de la survie à 30 jours en fonction du traitement par cathétérisme cardiaque droit
+
+### Méthode
+La méthode de Kaplan Meier permet de représenter graphiquement les courbes de survie (une courbe par groupe). 
+
+### Conditions de validité
+Kaplan Meier :  
+- censure indépendante de la probabilité de survenue de l'evenement  
+- probabilité de survie indépendante du moment de recrutement dans l'étude   
+- censure indépendante du groupe
+Je n'ai pas assez d'information sur le protocole de l'étude et les perdus de vu pour le vérifier.
+
+
+```{r}
+
+s <- d2.app
+.title <- "Survie selon traitement par cathétérisme cardiaque"
+vec_time_IC <- c(10,30)
+var <- "CCD"
+s$tps <- s[ ,"timeb"] 
+
+km <- survfit(Surv(tps,DTH30b)~SWAN , data=s, conf.int=.95)
+km0 <- survfit(Surv(tps,DTH30b)~SWAN , data=s[s$SWAN==0,], conf.int=.95)
+km1 <- survfit(Surv(tps,DTH30b)~SWAN, data=s[s$SWAN==1,], conf.int=.95)
+
+#pour IC95%
+skmi0<-summary(km0, time=vec_time_IC-0.2)
+skmi1<-summary(km1, time=vec_time_IC-0.1) 
+
+group0 <- paste0("\nIn group ", var, " = 0\n ")
+group1 <- paste0("\nIn group ", var, " = 1\n ")
+
+#survies aux tps choisis
+cat(group0)
+sv <- summary(km0, time=vec_time_IC)
+df <- data.frame(time = sv$time, survival = sv$surv*100, LCI = sv$lower*100, UCI = sv$upper*100)
+df[,2:4] <- round(df[,2:4], 0)
+cat(paste0("At ", df$time, " days, survival[95%CI] ", df$survival, "% [",df$LCI,"% - ",df$UCI, "%]\n"))
+
+cat(group1)
+sv <- summary(km1, time=vec_time_IC)
+df <- data.frame(time = sv$time, survival = sv$surv*100, LCI = sv$lower*100, UCI = sv$upper*100)
+df[,2:4] <- round(df[,2:4], 0)
+cat(paste0("At ", df$time, " days, survival[95%CI] ", df$survival, "% [",df$LCI,"% - ",df$UCI, "%]\n"))
+
+#preparation legende
+leg<-str_sub(names(km$strata),-1,-1)
+leg <- ifelse(leg==0, "non traité", "traité")
+col <- hue_pal()(length(leg))
+
+#courbe de survie
+g <- ggsurv(km, CI=FALSE, order.legend=FALSE, surv.col=col, cens.col=col) +
+  #changement des axes
+  scale_x_continuous(breaks=seq(0,max(s$tps),1), labels=0:(length(seq(0,max(s$tps),1))-1)) +
+  scale_y_continuous(labels=percent) +
+  labs(x="durée de suivi, jours", y="Survie, %", title=.title) +
+  #changement legende
+  guides (linetype = FALSE) +
+  scale_colour_discrete( labels = leg) +
+  theme(legend.position="right", legend.title=element_blank()) +
+  #espace autour du schéma
+  theme(plot.margin = unit(c(1,1,3,2), "cm")) #top, right, bottom, left
+
+#intervalle de confiance
+for (i in 1:2) {
+  g <- g + geom_segment(x = skmi0$time[i], y = skmi0$lower[i], xend = skmi0$time[i], yend = skmi0$upper[i], colour = col[1])
+  g <- g + geom_segment(x = skmi0$time[i] - 0.1, y = skmi0$lower[i], xend = skmi0$time[i] + 0.1, yend = skmi0$lower[i], colour = col[1])
+  g <- g + geom_segment(x = skmi0$time[i] - 0.1, y = skmi0$upper[i], xend = skmi0$time[i] + 0.1, yend = skmi0$upper[i], colour = col[1])
+  
+  g <- g + geom_segment(x = skmi1$time[i], y = skmi1$lower[i], xend = skmi1$time[i], yend = skmi1$upper[i], colour = col[2])
+  g <- g + geom_segment(x = skmi1$time[i] - 0.1, y = skmi1$lower[i], xend = skmi1$time[i] + 0.1, yend = skmi1$lower[i], colour = col[2])
+  g <- g + geom_segment(x = skmi1$time[i] - 0.1, y = skmi1$upper[i], xend = skmi1$time[i] + 0.1, yend = skmi1$upper[i], colour = col[2])
+}
+
+
+
+#pvalue
+pval <- test$robscore[3] #je reprend le test qui était le summary du modele avec cluster
+pval <- ifelse(pval<0.001, "test du score robuste \n p<0.001 *",paste0("test du score robuste \n p=", pval))
+g <- g + annotate("text",
+                  x=0.75*max(km$time),
+                  y=0.90*max(km$surv),
+                  label=pval)
+
+gt <- ggplotGrob(g)
+gt$layout$clip[gt$layout$name=="panel"] <- "off"
+grid.draw(gt)
+    
+
+
+```
+
+Fig X. Courbes de survie par la méthode de Kaplan Meier de la survie à 30 jours en fonction du traitement par cathétérisme cardiaque droit. 
+
+
+```{r}
+#table de survie 
+at_risk <- summary(km)
+dfrisk <- data.frame(at_risk[c(2:5,7)])
+dfrisk <- data.frame(at_risk[c("time", "n.risk", "n.event", "surv", "strata")])
+dfrisk$surv <- paste(round(dfrisk$surv,2)*100,"%")
+
+#groupe swan=0
+dfrisk0 <- dfrisk[dfrisk$strata=="SWAN=0",-5]
+dfrisk0b <- data.frame(time=c(10,20,30))
+dfrisk0b$n.risk <- dfrisk0$n.risk[dfrisk0$time%in%dfrisk0b$time]
+dfrisk0b$n.event <- sapply(dfrisk0b$time, function(x) sum(dfrisk0$n.event[dfrisk0$time<=x]))
+dfrisk0b$surv <- dfrisk0$surv[dfrisk0$time%in%dfrisk0b$time]
+
+dfrisk0tab <- data.frame(t(dfrisk0b))[-1,]
+colnames(dfrisk0tab) <- paste0("J",dfrisk0b$time)
+dfrisk0tab$J0 <- c(length(unique(s$PTID[s$SWAN==0])), 0, "100%")
+dfrisk0tab <- dfrisk0tab[,c(ncol(dfrisk0tab),1:(ncol(dfrisk0tab)-1))]
+kable(dfrisk0tab)
+```
+
+Table X Table de survie des patients non traités par cathétérisme cardiaque droit
+
+```{r}
+#groupe swan=1
+dfrisk1 <- dfrisk[dfrisk$strata=="SWAN=1",-5]
+dfrisk1b <- data.frame(time=c(10,20,30))
+dfrisk1b$n.risk <- dfrisk1$n.risk[dfrisk1$time%in%dfrisk1b$time]
+dfrisk1b$n.event <- sapply(dfrisk1b$time, function(x) sum(dfrisk1$n.event[dfrisk1$time<=x]))
+dfrisk1b$surv <- dfrisk1$surv[dfrisk1$time%in%dfrisk1b$time]
+
+dfrisk1tab <- data.frame(t(dfrisk1b))[-1,]
+colnames(dfrisk1tab) <- paste0("J",dfrisk1b$time)
+dfrisk1tab$J0 <- c(length(unique(s$PTID[s$SWAN==1])), 0, "100%")
+dfrisk1tab <- dfrisk1tab[,c(ncol(dfrisk1tab),1:(ncol(dfrisk1tab)-1))]
+kable(dfrisk1tab)
+```
+
+
+Table X Table de survie des patients traités par cathétérisme cardiaque droit
+
+
+On observe 2 courbes de survie, 1 pour le groupe non traité(0) et 1 pour le groupe traité(1). A chaque temps, les "marches d'escalier" représentent les patients qui ont eu l'évènement, faisant diminuer le nombre de personnes à risque d'évènement(c'est à dire les non répondeurs). Les croix représentent à chaque temps la présence de censure (perdus de vue ou exclus vivant). Par exemple, je passe de 75% de répondeurs à J7 à un peu plus de 50% de répondeurs à J14 dans le groupe 0. Dans la table de survie (table 3) je vois que ça correspond à 16 patients ayant eu l'évènement à J14. Pour le groupe 1, je lis sur la courbe que je passe de 90% environ à 75% de répondeurs. Dans la table de survie (table 4) cela correspond à 10 patients ayant eu l'évènement.
+La courbe de Kaplan Meier nous permet d'observer graphiquement que la survie est meilleure lorsque les patients ne sont pas traités par cathétérisme cardiaque droit.
+
+# Conclusion
 
