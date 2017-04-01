@@ -5,14 +5,14 @@ date: "27 février 2017"
 output:
   word_document: default
   pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
-library(knitr)
 source("01-library_EPID.R")
 source("02-functions_EPID.R")
 knitr::opts_chunk$set(echo = TRUE)
-opts_chunk$set(echo=FALSE, comment=NA, fig.width=6, fig.height=6)
+opts_chunk$set(echo=FALSE, comment=NA, warning= FALSE, fig.width=6, fig.height=6)
 #opts_chunk$set(fig.width=6, fig.height=6)
 ```
 
@@ -57,7 +57,7 @@ for (i in c("DEATH", "DTH30", "DNR1", "RESP", "CARD", "NEURO", "GASTR", "RENAL",
 for (x in colnames(d)){
   if(is.factor(d[ ,x])) {
     if(length(d[d[ ,x]=="", x])!=0) {
-      print(x)
+      #print(x)
     } 
   }
 }
@@ -131,6 +131,7 @@ Avant d'utiliser la variable DTH30 dans une régression logistique, je vérifie 
 ## Je réalise une analyse descriptive préliminaire afin de repérer les incohérences
 
 ###Présentation des variables de l'examen clinique et biologique:
+
 Activities of daily living (ADL) : échelle d'autonomie de 0 à 12 (score>6 signe une dépendance)  
 Duke Activity Status Index (DASI) : auto-questionnaire de 12 items mesurant l'activité fonctionnelle. Le score va de 0 à 58.2, plus le score est élevé, meilleur est l'activité fonctionnelle. 
 DNR pour Do not resuscitate : 1 pour une interdiction de réanimation cardiopulmonaire, 0 sinon.  
@@ -162,18 +163,11 @@ var_exam <- c("ADLD3P", "DAS2D3PC", "DNR1", "SURV2MD1", "APS1", "SCOMA1", "WTKIL
 #var admission diagnosis
 var_ad <- c("RESP", "CARD", "NEURO", "GASTR", "RENAL", "META", "HEMA", "SEPS", "TRAUMA", "ORTHO")
 
-#JE vérifie qu'elles sont toutes là
-colnames(d)[!colnames(d) %in% c(var_quali_des, var_quanti_des, var_atcd, var_date, var_com, var_exam, var_ad)]
-
-#2/ Je fais un tableau descriptif pour répérer d'éventuels incohérence
-
-do.call(rbind, lapply(c(var_quali_des, var_quanti_des, var_atcd, var_com, var_exam, var_ad), describe_all, d))
-write.table(print(do.call(rbind, lapply(c(var_quali_des, var_quanti_des, var_atcd, var_com, var_exam, var_ad), describe_all, d))), file="clipboard", sep="\t")
-range(d$LSTCTDTE)
-range(d$SADMDTE)
-
-
-#3/ Nb de NA
+#Je vérifie qu'elles sont toutes là
+#colnames(d)[!colnames(d) %in% c(var_quali_des, var_quanti_des, var_atcd, var_date, var_com, var_exam, var_ad)]
+```
+##Données manquantes
+```{r}
 #Nb de sujets avec 0, 1, 2, 3, 4 NA 
 table(apply(apply(d,2,is.na),1,sum))
 #cb de NA pour chaque colonne
@@ -182,16 +176,43 @@ table(apply(apply(d,2,is.na),2,sum))
 
 prop.table(table(is.na(d$ADLD3P)))
 prop.table(table(is.na(d$URIN1)))
-
-#4/ Nb de duplicatas
-d[duplicated(d$PTID),]
-
 ```
 ADLD3P et URIN1 ont respectivivement 75% et 53% de données manquantes tandis que les autres variables n'ont aucune ou moins de 5% de données manquantes. Je ne prendrai donc pas en compte ces deux variables dans le calcul du score de propension et je laisse les autres variables telles quelles pour le moment. 
 Il n'y a pas de doublon.
 
+## Pas de doublons sujets
+```{r}
+d[duplicated(d$PTID),]
+```
+
+## valeurs aberrantes
+
+Pour détecter les valeurs aberrantes je dispose de plusieurs méthodes. Je regarde le tableau descriptif en calculant pour chaque variable quantitative la moyenne, l'intervalle interquartile et surtout le range (voir annexe). Je croise également les variables fréquence cardiaque, pression artérielle et fréquence respiratoire à la recherche d'incohérence. Enfin je regarde la distribution des variables ce qui me permet de réperérer éventuellement d'autres incohérences. (voir annexe) Par exemple nous voyons un pic à 0 pour la variable WTKILO1 (nous l'avions déjà vu grâce au tableau descriptif, mais c'est un deuxième filet de sécurité). 
+
 ```{r, eval=FALSE}
-#4/ distribution des items
+# Je fais un tableau descriptif pour répérer d'éventuels incohérence
+write.table(print(do.call(rbind, lapply(c(var_quali_des, var_quanti_des, var_atcd, var_com, var_exam, var_ad), describe_all, d))), file="clipboard", sep="\t")
+range(d$LSTCTDTE)
+range(d$SADMDTE)
+
+```
+
+```{r}
+# Je croise les variables pour chercher d'autres incohérences
+
+#creation d'une variables permettant d'observer le profil des patients ayant FC, et/ou FR et/ou TA =0
+HR0 <- ifelse(d$HRT1==0, "FC0", ifelse(!is.na(d$HRT1),0,NA))
+FC0 <- ifelse(d$RESP1==0, "FR0", ifelse(!is.na(d$RESP1),0,NA))
+TA0 <- ifelse(d$MEANBP1==0, "TA0", ifelse(!is.na(d$MEANBP1),0,NA))
+#pas de NA de toutes façons pour ces valeurs
+d$cleCR <- paste(HR0, FC0, TA0, sep="|")
+table(d$cleCR)
+d[d$cleCR=="FC0|FR0|0", c("HRT1", "RESP1", "MEANBP1", "DTH30", "SCOMA1", "TEMP1")]
+```
+
+```{r, eval= FALSE}
+# distribution des items avant modification et imputation
+
 .l <- lapply(colnames(d), function(x){
   if (class(d[,x])=="Date") {
     #browser()
@@ -206,30 +227,13 @@ Il n'y a pas de doublon.
 ml <- marrangeGrob(.l,ncol=3,nrow=3,top = NULL)
 ggsave(file="distrib bef dm.pdf", ml)
 print(ml)
-
-
-
 ```
 
 
-## Je croise les variables pour chercher d'autres incohérences
-
 ```{r}
-#creation d'une variables permettant d'observer le profil des patients ayant FC, et/ou FR et/ou TA =0
-HR0 <- ifelse(d$HRT1==0, "FC0", ifelse(!is.na(d$HRT1),0,NA))
-FC0 <- ifelse(d$RESP1==0, "FR0", ifelse(!is.na(d$RESP1),0,NA))
-TA0 <- ifelse(d$MEANBP1==0, "TA0", ifelse(!is.na(d$MEANBP1),0,NA))
-#pas de NA de toutes façons pour ces valeurs
-d$cleCR <- paste(HR0, FC0, TA0, sep="|")
-table(d$cleCR)
-d[d$cleCR=="FC0|FR0|0", c("HRT1", "RESP1", "MEANBP1", "DTH30", "SCOMA1", "TEMP1")]
-
-```
-J'ai observé ensemble la fréquence cardiaque, la fréquence respiratoire et la tension artérielle. J'observe certaines incohérences : parfois 2 de ces variables peuvent valoir 0 mais pas la troisième, et parfois une seule de ces variables vaut 0.
+# Modification des valeurs aberrantes
 
 
-
-```{r}
 #"0|0|0" :aucune valeure ne vaut 0, ok
 #"0|0|TA0" : LA tension artérielle vaut 0 mais pas le reste : probable erreur de mesure
 d$MEANBP1 <- ifelse(d$cleCR=="0|0|TA0", NA, d$MEANBP1)
@@ -256,14 +260,8 @@ d$PACO21 <- ifelse(d$PACO21>100, NA, d$PACO21)
 #recodage de l'albumine
 d$ALB1 <- ifelse(d$ALB1>10, NA, d$ALB1)
 
-#Je regarde à nouveau le nombre de données manquantes
-#Nb de sujets avec 0, 1, 2, 3, 4 NA 
-table(apply(apply(d,2,is.na),1,sum))
-#cb de NA pour chaque colonne
-apply(apply(d,2,is.na),2,sum)
-table(apply(apply(d,2,is.na),2,sum))
 ```
-Les scores qui ont été mesurés, semblent tous avoir des résultats plausibles excepté le score de Glasgow qui a été modifié : d'un score allant de 3 à 15 on passe à un score allant de 0 à 100. Le score de 100 est probablement lié à un coma sévère car les patients avec un score plus élevé ont un risque de décès augmenté (alors que dans l'échelle d'origine, 3 correspond au coma sévère, et 15 à une conscience normale).  
+Les scores qui ont été mesurés, semblent tous avoir des résultats plausibles excepté le score de Glasgow qui a été modifié : d'un score allant de 3 à 15 on passe à un score allant de 0 à 100. Le score de 100 est probablement lié à un coma sévère car les patients avec un score plus élevé ont un risque de décès augmenté (alors que dans l'échelle d'origine, 3 correspond au coma sévère, et 15 à une conscience normale) (voir courbe ci desous).  
 Je laisse la variable telle quelle car elle a de toute évidence été modifiée, je ne veux pas la remodifier une seconde fois.  
 La température corporelle peut aller de 27° en cas d'hypothermie profonde à 42-43° en cas de forte fièvre, donc je ne modifie pas.  
 Un patient ne peut pas avoir un poids de 0, ces 515 patients sont recodés en NA pour le poids.  
@@ -276,36 +274,41 @@ Une valeur normale d'albumine se situe entre 3.5 et 5 g/dL. Les patients avec un
 
 Les valeurs de natrémie, de kaliémie, de fréquence respiratoire, fréquence cardiaque, tension artéirelle et bilirubine semblent plausible
 
-
 http://www.srlf.org/wp-content/uploads/2015/11/0505-Reanimation-Vol14-N3-p177_185.pdf
 
 
+En observant ensemble la fréquence cardiaque, la fréquence respiratoire et la tension artérielle, je note certaines incohérences : parfois 2 de ces variables peuvent valoir 0 mais pas la troisième, et parfois une seule de ces variables vaut 0. Ainsi 1 patient à une tension artérielle à 0 mais une fréquence cardiaque et une fréquence respiratoire différente de 0, 47 patients ont une fréquence respiratoire à 0 mais une fréquence cardiaque et une tension artérielle différente de 0 et 3 patients ont une fréquence cardiaque à 0 mais une fréquence respiratoire et une tension artérielle différente de 0.  
 
-
-Règles de recodage de la fréquence caridaque, de la fréquence respiratoire et de la tension artérielle:
+Je modifie donc ces 3 variables selon les règles suivantes :
 -  Si deux de ces variables valait 0, alors la valeur de 0 était systématiquement attribuée à la troisième.  
 -  Si une seule de ces variables valait 0 alors elle était systématiquement transformée en valeur manquante.
 Recodage du poids : si le poids est inférieur à 25 je remplace par une valeure manquante.
 
-#Je regarde à quoi correspond la variable SCOMA1
 
-```{r, eval=FALSE}
+```{r}
+#Je regarde à nouveau le nombre de données manquantes
+#Nb de sujets avec 0, 1, 2, 3, 4 NA 
+table(apply(apply(d,2,is.na),1,sum))
+#cb de NA pour chaque colonne
+apply(apply(d,2,is.na),2,sum)
+table(apply(apply(d,2,is.na),2,sum))
+```
+#redecrire nombre de données manquantes!!
+
+```{r}
 #refaire en coupant SCOMA1 en classe et recuperer la courbe de survie pour var qualitative
-d$SCOMAsup90 <- ifelse(d$SCOMA1>90,1,0)
 d$SCOMAcut <- cut(d$SCOMA1, breaks=5)
-draw_surv_bin(var="SCOMAsup90", data=d, .time="time", .censor="DEATH", vec_time_IC= c(1, 3), type = "quali", surv_only=FALSE, pvalue = TRUE, dep_temps=FALSE, .transf=NULL)
-draw_surv_bin(var="SCOMAsup90", data=d, .time="timeb", .censor="DTH30", vec_time_IC= c(7, 14), type = "quali", surv_only=FALSE, pvalue = TRUE, dep_temps=FALSE, .transf=NULL, .scale="day")
-plot(d$SCOMA1, d$APS1) #le score APS ne nous aide pas
+#plot(d$SCOMA1, d$APS1) #le score APS ne nous aide pas
 #plus score est élevé, plus le risque de deces est eleve. 
-ggsurv(survfit(Surv(time, censor)~SCOMAcut, data=d), order.legend =FALSE)
+ggsurv(survfit(Surv(timeb, DTH30)~SCOMAcut, data=d), order.legend =FALSE)
 
 #Je supprime ces 2 variables du tableau
 d[ , c("SCOMAsup90", "SCOMAcut")] <- NULL
 ```
-
+Fig X. Décès en fonction du score de glasgow découpé en quintile.
 
 #Possible erreur des variables T3D30 et DTH30
-```{r}
+```{r, eval = FALSE}
 d[d$T3D30 != d$timeb, c("timeb", "time", "T3D30", "DEATH", "DTH30")]
 #      timeb time T3D30 DEATH DTH30
 # 453      4    4    30     0     0
@@ -319,7 +322,8 @@ d[d$T3D30 != d$timeb, c("timeb", "time", "T3D30", "DEATH", "DTH30")]
 
 ```
 8 sujets sont notés comme ayant une durée de suivi de 30 jours, or ils sont en fait perdus de vu avant 30 jours. J'ai donc recré une variable durée de suivi, time,  qui est la différence entre entre la date des dernières nouvelles (décès ou date de dernier contact) et la date d'admission, et j'ai ensuite crée la variable timeb telle que si cette durée était supérieure à 30, elle prenait alors la valeur 30. en comparant la variable timeb à la variable T3D30, je vois que les variables sont égales 2 à 2 pour chaque sujets exceptés les 8 sujets dont j'ai parlé ci dessus. J'ai donc remplacé la valeur de T3D30 pour ces sujets là par la valeure de timeb.
-Ces 8 sujets sont notés comme n'ayant pas eu d'évènement à 30 jours. Cela ne pose pas de problème si l'on fait un modèle de Cox qui prend en compte les perdus de vue, mais je souhaitais faire une régression logistique conditionnelle et dans ce cas je ne peux pas dire que les 8 sujets perdus de vue avant 30 jours ne sont pas mort à 30 jours et je choisi donc de mettre une donnée manquante pour ces 8 valeurs
+Ces 8 sujets sont notés comme n'ayant pas eu d'évènement à 30 jours. Cela ne pose pas de problème si l'on fait un modèle de Cox qui prend en compte les perdus de vue, mais je souhaitais faire une régression logistique conditionnelle et dans ce cas je ne peux pas dire que les 8 sujets perdus de vue avant 30 jours ne sont pas mort à 30 jours et je choisi donc de mettre une donnée manquante pour ces 8 valeurs. Il s'agit peut être d'erreurs de saisie et je ne peux pas trancher. Dans le doute je prendrai donc les variables T3D30 et DTH30 sans les modifier, en supposant que la date d'admission ou la date des dernières nouvelles est erronée. 
+
 
 # Description des variables
 
@@ -339,19 +343,9 @@ quali <- c("RACE", "INCOME", "NINSCLAS", "CAT1", "CAT2", "CA")
 Pause dans les inclusions
 
 
-# Description avant imputation
-```{r}
-des_noSWAN <- do.call(rbind, lapply(c(var_quali_des, var_quanti_des, var_atcd, var_com, var_exam, var_ad), describe_all, d[d$SWAN==0, ]))
-des_SWAN <- do.call(rbind, lapply(c(var_quali_des, var_quanti_des, var_atcd, var_com, var_exam, var_ad), describe_all, d[d$SWAN==1, ]))
-des_all <- do.call(rbind, lapply(c(var_quali_des, var_quanti_des, var_atcd, var_com, var_exam, var_ad), describe_all, d))
-des_tot <- cbind(des_noSWAN[ , 1], des_SWAN[ , 1], des_all[ , 1:2])
-des_tot <- des_tot[str_sub(rownames(des_tot), -1, -1)!=0, ]
-```
-
-
 # Imputation des valeurs manquantes
 
-Je décide de ne garder que les variables avec moins de 20%de données manquantes et les sujets avec moins de 50% de données manquantes (excepté la variable date de décès bien sûr). Je ne tiens compte que des variables explicatives (je ne tiens pas compte du décès ni du traitement, qui n'est jamais NA de toutes façons, ni des dates d'entrée dans l'étude ou de sortie de l'hopital). J'imputerai les données manquantes restantes. 
+Je décide de ne garder que les variables avec moins de 20% de données manquantes et les sujets avec moins de 50% de données manquantes (excepté la variable date de décès bien sûr). Je ne tiens compte que des variables explicatives (je ne tiens pas compte du décès ni du traitement, qui n'est jamais NA de toutes façons, ni des dates d'entrée dans l'étude ou de sortie de l'hopital). J'imputerai les données manquantes restantes. Pour rappel certaines données sont notées comme manquantes car aberrantes.
 
 Je vais donc dans un premier temps observer les données manquantes par variable et par sujet. 
 ```{r}
@@ -368,7 +362,7 @@ table(napat)
 Le score d'autonomie ADL a environ 75% de données manquantes et la variable volume d'excrétion urinaire a plus de 50% de données manquantes. Je supprime donc ces deux variables de l'analyse.
 250 patient patients n'ont aucune donnée manquante, 5485(95.6%) patients ont au moins 1 donnée manquante dont : 1930 patients avec 1 donnée manquante, 2694 patients avec 2 de données manquantes, 796 patients avec 3 données manquantes, 64 patients avec 4 données manquantes et 1 patient avec 5 données manquantes. Tous les patients ont donc moins de 50% de données manquantes. Je les garde tous dans l'analyse.
 
-Je note également qu'il n'y a pas de valeurs manquantes concernant la variable d'intérêt Swan ganz. Si je prends comme outcome le décès à 30 jours, analysé par régression logistique, j'ai 8 valeurs manquantes (car les sujets ont été censurés avant 30j, et la censure n'est pas prise en charge par le modèle logistique).
+Je note également qu'il n'y a pas de valeurs manquantes concernant la variable d'intérêt Swan ganz in concernant l'outcome décès à 30 jours. 
 
 
 ```{r}
@@ -387,16 +381,7 @@ En supprimant ces 2 colonnes de l'analyse, j'ai 2397 patients avec au moins une 
 6 variables ont au moins une donnée manquante : la tension artérielle (15 NA), la fréquence cardiaque (60 NA), l'albuminémie (2 NA) l'hématocrite (8 NA), la PaCO2 (21 NA) et le poids (515 NA). 
 
 
-
-```{r, eval=FALSE}
-#J'impute ces données manquante par la médiane pour chaque variable.
-dput(names(nacol[nacol>0])) #c("MEANBP1", "HRT1", "ALB1", "HEMA1", "PACO21", "WTKILO1")
-for (i in c("MEANBP1", "HRT1", "ALB1", "HEMA1", "PACO21", "WTKILO1")){ 
-  d[ , i] <- ifelse(is.na(d[ , i]), median(d[ , i], na.rm = T), d[ , i])
-}
-```
-
-Dans un second temps, je réaliserai une imputation multiple en faisant l'hypothèse que les données manquantes le sont aléatoirement.
+Je réalise ensuite une imputation multiple avec le package mice en faisant l'hypothèse que les données manquantes le sont aléatoirement. Je ne réalise qu'un seul jeu de de données imputé.
 
 ```{r}
 #mice bug si je laisse les dates
@@ -415,6 +400,13 @@ set.seed(103)
 imputed = mice(d[ ,!colnames(d)%in%var_date], method=meth, predictorMatrix=predM, m=1)
 imputed <- complete(imputed)
 d[ ,!colnames(d)%in%var_date] <- imputed
+
+
+# #NB: autre possibilité d'imputation, non réalisée ici : imputer les données manquantes par la médiane pour chaque variable
+# #dput(names(nacol[nacol>0])) #c("MEANBP1", "HRT1", "ALB1", "HEMA1", "PACO21", "WTKILO1")
+# for (i in c("MEANBP1", "HRT1", "ALB1", "HEMA1", "PACO21", "WTKILO1")){ 
+#   d[ , i] <- ifelse(is.na(d[ , i]), median(d[ , i], na.rm = T), d[ , i])
+# }
 ```
 
 # Description après imputation
@@ -427,7 +419,7 @@ des_SWAN <- do.call(rbind, lapply(c(var_quali_des, var_quanti_des, var_atcd, var
 des_all <- do.call(rbind, lapply(c(var_quali_des, var_quanti_des, var_atcd, var_com, var_exam, var_ad), describe_all, d))
 des_tot <- cbind(des_noSWAN[ , 1], des_SWAN[ , 1], des_all[ , 1:2])
 des_tot <- des_tot[str_sub(rownames(des_tot), -1, -1)!=0, ] 
-#kable(des_tot)
+kable(des_tot)
 ```
 
 
@@ -440,6 +432,11 @@ fpca(y="DTH30b", x= c(var_ad, var_atcd, var_exam, var_com, vardes), data=d, part
 
 
 #Tests bivariés
+
+Je dois intégrer dans le score de propension les variables qui sont associées significativement avec le décès à 30 jours ou avec le décès à 30 jours et le traitement par cathétérisme. Pour cela je réalise deux séries de tests bivariés. Une première série testant l'association entre chaque variable et le décès à 30 jours et une deuxième série testant l'association entre chaque variable et le traitement par cathétérisme. Pour rappel, les variables ADLD3P et URIN1 ne sont pas dans l'analyse.
+J'utilise un modèle de régression logistique, la variable à expliquer étant soit la variable cathétérisme, soit la variable décès à 30 jours (variables toutes deux binaires) et la variable explicative étant chacune des variables à tester.  
+
+Les conditions de validité sont toujours respectées car j'ai 9 classes au maximum (variable CAT1), donc la condition des 5 à 10 variables par variable est toujours respectée.
 ```{r}
 #TESTS BIVARIES : 
 
@@ -449,7 +446,7 @@ var_exam <- c("DAS2D3PC", "DNR1", "SURV2MD1", "APS1", "SCOMA1", "WTKILO1", "TEMP
 
 #avec swanganz
 list_swan <- lapply(c(var_ad, var_atcd, var_exam, var_com, vardes), function(x){
-  print(x)
+  #print(x)
   d$var <- d[,x]
   if (all(levels(as.factor(d$var)) %in% c(0,1))) d$var <- as.factor(d$var) 
   mod <- glm(SWAN~var,d, family="binomial")
@@ -472,7 +469,7 @@ list_swan <- lapply(c(var_ad, var_atcd, var_exam, var_com, vardes), function(x){
 list_swan <- do.call(rbind, list_swan)
 
 list_death <- lapply(c(var_ad, var_atcd, var_exam, var_com, vardes), function(x){
-  print(x)
+  #print(x)
   d$var <- d[,x]
   if (all(levels(as.factor(d$var)) %in% c(0,1))) d$var <- as.factor(d$var) 
   #mod <- glm(DEATH~var,d, family="binomial")
@@ -515,7 +512,7 @@ dput(rownames(list_pval[list_pval$select==1,]))
 
 #var avec DTH30b
 varps <- rownames(list_pval[list_pval$select==1,])
-print(varps)
+kable(varps)
 
 #variables liées au décès et au traitement
 rownames(list_pval[list_pval$`coef pvalue DEATH`<0.05 & list_pval$`coef pvalue SWAN`<0.05, ])
@@ -524,15 +521,19 @@ rownames(list_pval[list_pval$`coef pvalue DEATH`<0.05 & list_pval$`coef pvalue S
 #variables liées uniquement à la swan 
 rownames(list_pval[list_pval$`coef pvalue DEATH`>=0.05 & list_pval$`coef pvalue SWAN`<0.05, ])
 ```
-J'ai 9 classes au maximum (variable CAT1), donc la condition des 5 à 10 variables par variable est toujours respectée.
-2 variables sont liées au décès uniquement : "TEMP1"   "LIVERHX"
+
+2 variables sont liées au décès uniquement : 
+"TEMP1"   "LIVERHX"
+
 34 variables sont liées au décès et au traitement par cathétérisme :
  "RESP"     "CARD"     "NEURO"    "GASTR"    "HEMA"     "SEPS"     "CAT1"     "CAT2"     "CA"      
  "DAS2D3PC" "DNR1"     "SURV2MD1" "APS1"     "SCOMA1"   "WTKILO1"  "MEANBP1"  "PAFI1"    "PACO21"  
  "PH1"      "WBLC1"    "HEMA1"    "CREA1"    "BILI1"    "ALB1"     "CARDIOHX" "CHFHX"    "DEMENTHX"
  "PSYCHHX"  "CHRPULHX" "GIBLEDHX" "MALIGHX"  "AGE"      "INCOME"   "NINSCLAS"
-10 variables sontliées uniquement au cathétérisme : 
+
+10 variables sont liées uniquement au cathétérisme :
 "RENAL"   "TRAUMA"  "RESP1"   "HRT1"    "SOD1"    "IMMUNHX" "TRANSHX" "AMIHX"   "SEX"     "EDU"
+
 
 # Score de Propension
 
@@ -567,7 +568,7 @@ Figure x. Distribution de la probablité d'être cathétérisé selon qu'ils ont
 
 On voit que la distribution du score n'est pas la même parmi les patients ayant été cathétérisé et ceux n'ayant pas été cathétérisé : beaucoup de patient n'ayant pas été cathétérisé avait une faible probabilité d'être cathétérisé (distribution en L), alors que la distribution est plutôt en cloche centré autour de 0.5(distribution en cloche). On comprend donc que nécessairement l'appariemment va supprimer de nombreux patients.
 
-## nombre de patients gardés
+
 
 #Appariemment sur le score de propension
 
@@ -651,12 +652,16 @@ dtm <- merge(d2.appbis, dta_m[,c("PTID","distance","weights")], by="PTID", all=T
 
 A partir du score de propension, je vais apparier un sujet cathétériser avec un sujet non cathétérisé ayant un score de propension proche c'est à dire une probabilité d'être cathétérisé proche. Le sujets non appariés sont écartés de l'analyse. Les sujets devrait donc se ressembler dans les 2 groupes. J'utilise un caliper de 0.2, c'est à dire un seuil d'appariemme,t de 0.2 x sd(logit(score de propension)). 
 
+## nombre de patients gardés
+
 
 # Vérification de l'équilibre des variables entre les deux groupes après appariemment
 
-Je transforme les qualitatives en binaires. 
+
 
 ```{r}
+# Je transforme les qualitatives en binaires. 
+
 varps_quanti <- varps[sapply(varps, function(variable) length(levels(dtm[,variable]))<=2)]
 varps_quali <- varps[!varps%in% varps_quanti]
 
@@ -750,7 +755,7 @@ varps_binaire <- varps_new[!varps_new%in% varps_quanti2]
 #si le score et le matching ont bien marché
 
 #METHODE 0 : 
-MatchBalance(formula(paste0("SWANT ~ ",paste(varps_new,collapse="+"))), data=d2_b, match.out=tmp) #package Matching
+#MatchBalance(formula(paste0("SWANT ~ ",paste(varps_new,collapse="+"))), data=d2_b, match.out=tmp) #package Matching
 
 ```
 ```{r}
@@ -771,14 +776,14 @@ fn_bal <- function(dta, variable) {
 }
 
 .l <- lapply(c(varps_quanti2, varps_binaire), function(variable){
-  print(variable)
+  #print(variable)
   num <- which(c(varps_quanti2, varps_binaire)==variable)
   if (num %% 2 != 0) fn_bal(dtm_b, variable)
   else fn_bal(dtm_b, variable) + theme(legend.position = "none")
 })
 
 ml <- marrangeGrob(.l, nrow=2, ncol=2, top = NULL)
-ggsave(file="distrib mean variables after matching 20170320.pdf", ml)
+ggsave(file="distrib mean variables after matching 20170330.pdf", ml)
 
 #============================
 
@@ -936,7 +941,7 @@ getMIC_quali <- function(.data, .vec_group){
  
   dt <- lapply(names(.data), function(var){
     num <- which(var==names(.data))
-    print(num)
+    #print(num)
     # #standardisation
     # .data[,var] <- (.data[,var] - mean(.data[,var]))/sd(.data[,var])  
     
@@ -1065,8 +1070,6 @@ Dans le futur, je préférerai quand même l'analyse de l'équilibre par la mét
 
 #Analyse avec d2.app = package Matching (methode David Hajage)
 
-
-
 #d2.app$DEATH <- as.numeric(as.character(d2.app$DEATH))
 d2.app$DTH30b <- as.numeric(as.character(d2.app$DTH30b))
 d2.app$SWAN <- as.numeric(as.character(d2.app$SWAN))
@@ -1094,11 +1097,13 @@ La variable à expliquer est la mort à 30 jours, la variable explicative est le
 d2.app$DTH30b <- as.numeric(as.character(d2.app$DTH30b))
 d2.app$SWAN <- as.numeric(as.character(d2.app$SWAN))
 mod1 <- clogit(DTH30b~SWAN + strata(paire), method="efron", data=d2.app) #marche avec efron
+#mod1 <- clogit(SWAN~DTH30b + strata(paire), method="efron", data=d2.app) #marche avec efron
 exp(coefficients(mod1))
 exp(confint(mod1))
+
 ```
 
-Les conditions de validité sont respectées, j'ai plus de 5 à 10 évènements par variable explicative.
+Les conditions de validité sont respectées, j'ai plus de 5 à 10 évènements par variable explicative (la stratification sur la paire n'est pas une variable explicative).
 Le coefficient du cathétérisme est significatif (pvalue<0.01), le cathétérisme cardiaque droit a donc un effet significatif sur le risaue de décès à 30 jours. le coeffcient vaut 0.17, l'exponentiel du coefficient me permet d'obtenir l'Odds ratio du risque de décès associé au cathétérisme. L'OR est de 1.19 avec un intervalle de confiance à 95% [1.05-1.34]. Le décès n'est pas un évènement rare, je ne peux donc pas interpréter l'OR comme un RR mais je peux dire que le risque de décès est augmenté lorsque le patient est cathétérisé.
 
 ## Modèle de Cox
@@ -1211,6 +1216,7 @@ mod2 <- coxph(Surv(timeb,DTH30b) ~ SWAN + cluster(paire), data=d2.app) #J'utilis
     ICl <- cHR-error
     ICu <- cHR+error
     paste(round(exp(c(cHR, ICl, ICu)),3))
+    
 ```
 L'hypothèse des risques proportionnels n'est pas vérifiée. En effet l'intervalle de confiance des résidus de shoenfeld n'incluent pas 0 en tous points. Il faut donc en toute rigueur que j'ajoute une variable SWAN dépendante du temps. Cependant je n'ai pas trouvé de transformation qui convienne, aucun coefficient de paramètre dépendant du temps n'étant significatif lorsqu'on l'ajoute au modèle (les résidus de Shoenfeld des modèles ne doivent donc même pas être regardés). Voici les transformations essayeées : log, racine carrée, *temps, 1/temps, racine cube, carré, cube et puissance de 0.7.  J'analyse donc le modèle de Cox sans ajouter de variable dépendante du temps, mais il faudra avoir en tête que le résultat est erroné.
 
@@ -1224,12 +1230,11 @@ Je retrouve cette information graphiquement en traçant une courbe de survie en 
 La méthode de Kaplan Meier permet de représenter graphiquement les courbes de survie (une courbe par groupe). 
 
 ### Conditions de validité
+
 Kaplan Meier :  
 - censure indépendante de la probabilité de survenue de l'evenement  
 - probabilité de survie indépendante du moment de recrutement dans l'étude   
 - censure indépendante du groupe
-Je n'ai pas assez d'information sur le protocole de l'étude et les perdus de vu pour le vérifier.
-
 
 ```{r}
 
@@ -1360,3 +1365,28 @@ La courbe de Kaplan Meier nous permet d'observer graphiquement que la survie est
 
 # Conclusion
 
+Dans cette étude observationnelle, après prise en compte des biais d'indication propables à l'aide d'un score de propension, nous mettons en évidence une association entre le cathétérisme cardiaque droit par sonde de swan ganz et le risque de mortalité à 30 jours : le cathétérisme cardiaque droit est associé à une augmentation du risque de mortalité (bien que l'utilisation du score de propension augmente le niveau de causalité, on ne peut pas conclure avec le même niveau de causalité qu'un essai randomisé).
+
+#Annexes
+
+
+#Distribution des variables avant modification et imputation
+```{r, eval= FALSE}
+#4/ distribution des items avant modification et imputation
+#cf annexe
+.l <- lapply(colnames(d), function(x){
+  if (class(d[,x])=="Date") {
+    #browser()
+    qplot(d[ ,x], main=x, xlab=NULL, fill=I("navajowhite3"), col=I("pink4"))
+  }
+  else{
+    if (length(names(table(d[,x])))>15) qplot(as.numeric(as.character(d[ ,x])), main=x, xlab=NULL, fill=I("navajowhite3"), col=I("pink4"))
+    else qplot(as.factor(d[ ,x]), main=x, xlab=NULL, fill=I("navajowhite3"), col=I("pink4"))  
+  }
+  
+})
+ml <- marrangeGrob(.l,ncol=3,nrow=3,top = NULL)
+ggsave(file="distrib bef dm.pdf", ml)
+print(ml)
+
+```
