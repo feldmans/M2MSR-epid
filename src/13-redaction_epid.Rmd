@@ -20,19 +20,19 @@ opts_chunk$set(echo=FALSE, comment=NA, warning= FALSE, fig.width=6, fig.height=6
 
 Le cathétérisme cardiaque droit (CCD) est un examen invasif utilisé en soins intensif pour mesurer directement la fonction cardiaque, ce qui permettrait selon certains médecins une meilleure prise en charge du patient et donc une augmentation de la survie. Cependant pour montrer une telle causalité il faudrait un essai randomisé. Or nous avons ici les données d'une cohorte prospective, non interventionnelle, de patients hostpitalisés en réanimation, certains ayant été cathétérisés, d'autres non. La cathétérisation n'a pas été randomisée, il y a donc lieu de penser que l'examen a été réalisé préférentiellement chez certains types de patients, potentiellement les patients les plus graves qui ont donc plus de risque de décéder. Cela constitue un biais d'indication qui rend l'analyse de l'efficacité du CCD  ininterprêtable. Pour pouvoir analyser l'efficacité du CCD par sonde de swan Ganz, nous allons prendre en compte les biais d'indication propables à l'aide d'un score de propension, nous permettant d'améliorer le niveau de causalité de la relation CCD/Décès si elle existe.
 
-# DESCRIPTION DE LA BASE DE DONNEES
+# ETAPES PRELIMINAIRES
+
+## Description de la base de donnees
 
 ```{r}
 .dir <- dirname(getwd())
 
 d <- read.csv2(paste0(.dir,"/data/rhc_devoir_epidemio.csv"))
 
-dim(d)
-length(unique(d$PTID))
+#dim(d)
+#length(unique(d$PTID)) #Pas de doublons
 ```
-Base de données de 5735 lignes et 63 colonnes. Ce sont des données transversales avec une ligne par patient (pas de doublon), chaque variable ayant été mesurées une seule fois.
-
-# doublons
+La base de données comporte les informations de 5735 patients pour 63 variables. Ce sont des données transversales avec une ligne par patient (pas de doublon), chaque variable ayant été mesurées une seule fois.
 
 
 ## Data management
@@ -44,15 +44,15 @@ d$DSCHDTE <- as.Date(d$DSCHDTE,"%d/%m/%Y")
 d$DTHDTE <- as.Date(d$DTHDTE,"%d/%m/%Y") 
 d$LSTCTDTE <- as.Date(d$LSTCTDTE,"%d/%m/%Y")
 
-for (i in c("DEATH", "DTH30", "DNR1", "RESP", "CARD", "NEURO", "GASTR", "RENAL", "META", "HEMA", "SEPS", "TRAUMA", "ORTHO")) {
+for (i in c("DEATH", "DTH30", "DNR1", "RESP", "CARD", "NEURO", "GASTR", "RENAL", "META", "HEMA", "SEPS", "TRAUMA", "ORTHO", "T3D30")) {
   d[ ,i] <- as.character(d[,i])
   d[,i] <- ifelse (d[ ,i]=="No", 0, d[ ,i])
   d[,i] <- ifelse (d[ ,i]=="Yes", 1, d[ ,i])
   d[,i] <- as.numeric(d[,i])
 }
+
 #Pour transformer les "" en NA
 #plus long que apply mais garde la bonne structure
-
 #Je repère les variables avec ""
 for (x in colnames(d)){
   if(is.factor(d[ ,x])) {
@@ -79,56 +79,100 @@ levels(d$SWAN) <- c(0, 1)
 d$SWANT <- ifelse(d$SWAN==1, T, F)
 
 #Outcomes
-d$DEATH <- as.factor(d$DEATH)
+d$DEATH <- as.numeric(as.character(d$DEATH))
+d$DTH30 <- as.numeric(as.character(d$DTH30))
+
 # d$DEATH2 <- ifelse(!is.na(d$DTHDTE), 1, 0)
 # table(d$DEATH==d$DEATH2) #5735 true 0 false => la variable DEATH est correcte
 
-#var pour analyse de survie
-table(is.na(d$LSTCTDTE)) #pas de perdu de vu pour la date de dernier contact
-#3 patients pour lesquels la date de décès est antérieure à la date de derniere nouvelle
-#2151 pour lesquels date de dernières nouvelles est antérieure au décès.
-table(d$DTHDTE < d$LSTCTDTE)
-# d[d$DTHDTE < d$LSTCTDTE & !is.na(d$DTHDTE), c("DTHDTE", "LSTCTDTE")]
-# d[d$DTHDTE > d$LSTCTDTE & !is.na(d$DTHDTE), c("DTHDTE", "LSTCTDTE")]
 
-#=> Je modifie LSTCTDTE : si décès, alors la date de dernière nouvelle est la date de décès.
-d$LSTCTDTE <- as_date(ifelse(is.na(d$DTHDTE), d$LSTCTDTE, d$DTHDTE))
-#d$ddn <- as_date(ifelse(is.na(d$DTHDTE), d$LSTCTDTE, d$DTHDTE))
-
-#temps de suivi en j entre la date des dernières nouvelles (décès ou date de dernier contact) et la date d'admission
-d$time <- as.numeric(d$LSTCTDTE - d$SADMDTE) 
-#avant d'utiliser la variable DTH30 dans une régression logistique, je vérifie que tous les sujets sont bien suivis au moins 30j. Si non, alors ils sont NA pour le décès et non pas 0 car on ne tient pas compte du temps.
-table(d$time<=30, d$DEATH) #j'ai 8 sujets qui sont perdus de vu avant 30 jours et non décédés
-namesDTH30_NA <- d[d$time<=30 & d$DEATH==0, "PTID"]
-d$DTH30b <- NA
-d$DTH30b <- ifelse (d$time<=30 & d$DEATH==1, 1, d$DTH30b) 
-d$DTH30b <- ifelse (d$time>30, 0, d$DTH30b) 
-table(d$DTH30b)
-table(d$DTH30)
-#Je ne suis pas d'accord avec la variable DTH30 qui note 0 les sujets perdus de vu  avant 30 j. Ce serait ok pour un modele de survie prenant en compte de le temps de suivi mais
-#pas pour une régression logistique.
-
-#pour faire analyse de survie avec DTH30:
-d$timeb <- ifelse(d$time>30, 30, d$time)
-
-
-#Après avoir lu Connors 1996 :
 #Je renomme les niveaux de CA,
 levels(d$CA) <- c("Metastatic", "No", "Localized")
 d$CA <- relevel(d$CA, ref = "No")
-#La variable length of stay prior to study entry n'est a priori pas réalisable avec les données dont je dispose mais c'est par contre la durée dans l'étude
-quantile(as.numeric(d$DSCHDTE - d$SADMDTE)[d$SWAN==0])
-quantile(as.numeric(d$DSCHDTE - d$SADMDTE)[d$SWAN==1], na.rm=T)
-
 ```
 
+Je fais une première étape de datamanagement "basique" pour mettre les variables au bon format (dates, numérique et facteur), m'assurer que le numero de patient est en charactère, créer une variable SWAN en 0/1 et une autre en True/False selon les différents modèles utilisés par la suite. Je change également les "" en nocatégorie pour la variable catégorie ou en NA pour les dates. Je choisis No comme référence pour la variable CA
 
-3 patients pour lesquels la date de décès est antérieure à la date de derniere nouvelle -->
-2151 pour lesquels date de dernières nouvelles est antérieure au décès. -->
+## Vérification de la durée de suivi
+```{r}
+#Duree de suivi :
 
-Avant d'utiliser la variable DTH30 dans une régression logistique, je vérifie que tous les sujets non décédés sont bien suivis au moins 30j. Si non, alors ils sont NA pour le décès et non pas 0 car on ne tient pas compte du temps.  8 sujets sont perdus de vu avant 30 jours et non décédés, ils sont donc NA pour le décès et non pas 0 comme noté dans la variable DTH30 (ils sont cependant censor = 0 pour une analyse de survie) 
+#verification de la variable date de dernieres nouvelles (LSTCTDTE)
+#table(is.na(d$LSTCTDTE)) #pas de perdu de vu pour la date de dernier contact
 
-## Je réalise une analyse descriptive préliminaire afin de repérer les incohérences
+#3 patients pour lesquels la date de décès est antérieure à la date de derniere nouvelle
+#table(d$DTHDTE < d$LSTCTDTE)
+
+#2151 pour lesquels date de dernières nouvelles est antérieure au décès.
+#table(d$DTHDTE > d$LSTCTDTE)
+
+#=> Je modifie LSTCTDTE : si décès, alors la date de dernière nouvelle est la date de décès.
+d$LSTCTDTE_bck <- d$LSTCTDTE # back up pour comparer ensuite.
+d$LSTCTDTE <- as_date(ifelse(is.na(d$DTHDTE), d$LSTCTDTE, d$DTHDTE))
+
+#duree de suivi en j :  date des dernières nouvelles - date d'admission
+d$time <- as.numeric(d$LSTCTDTE - d$SADMDTE)
+
+#je recree la variable duree de suivi si l'outcome est deces a 30 jours :
+d$timeb <- ifelse(d$time>30, 30, d$time)
+
+
+#je compare cette vatiable a celle deja existante :
+#table(d$T3D30==d$timeb)
+d[d$T3D30 != d$timeb, c("timeb", "time", "T3D30", "DEATH", "DTH30")]
+#      timeb time T3D30 DEATH DTH30
+# 453      4    4    30     0     0
+# 488      6    6    30     0     0
+# 2338    21   21    30     0     0
+# 2811    10   10    30     0     0
+# 2907     2    2    30     0     0
+# 4783     9    9    30     0     0
+# 5123    28   28    30     0     0
+# 5437     8    8    30     0     0
+
+#8 patients ont une duree de suivi discordante.
+
+#Cela ne vient d'une modification de la date des dernières nouvelles
+d[d$T3D30 != d$timeb, c("timeb", "time", "T3D30", "DEATH", "DTH30", "LSTCTDTE", "LSTCTDTE_bck")]
+
+#Je prendrai la variable T3D30 pour la suite
+
+#Je supprime la variable LSTCTDTE_bck
+d$LSTCTDTE_bck <- NULL
+```
+
+Je vérifie les variables dates de décès, date de dernieres nouvelles, et durée de suivi pour l'outccome décès à 30 jours :   
+-  3 patients pour lesquels la date de décès est antérieure à la date de derniere nouvelle et 2151 pour lesquels date de dernières nouvelles est antérieure au décès. Je modifie la variable date de derniere nouvelle; si la datee de décès est non nulle, alors la date de dernières nouvelles est la date de décès.   
+
+-  Nous prendrons comme outcome le décès à 30 jours, je dois donc utiliser les variables DTH30, qui est le décès à 30 jours et T3D30 qui est le temps de suivi adapté à cet outcome. Afin de vérifier ces 2 variables, je recree la variable temps de suivi pour l'outcome décès à 30 jours.  
+Pour cela je cree d'abord la variable temps de suivi comme la différence entre la date des dernieres nouvelles et la date d'admission dans l'étude.  Puis je modifie cette variable telle que si le temps de suivi est supérieur à 30 jours alors je le ramène à 30 jours. Et la variable décès à 30 jours est modifiée comme ceci à partir de la variable décès : si le décès est survenu après 30 jours, alors la variable décès à 30 jours vaut 0.  
+En comparant les variables DTH30 et T3D30 avec celles recrées, je trouve une différence pour 8 patients qui ont un temps de suivi inférieur à 30 jours et qui sont pourtant noté avec un temps de suivi de 30 jours pour un outcome décès à 30 jours.Et ça ne vient pas de la modification de la variable date de dernières nouvelles. Pour la suite du devoir, je décide de prendre T3D30 comme variable de temps de suivi pour le décès à 30 jours.  
+ 
+##Données manquantes
+```{r, eval = FALSE}
+#Nb de sujets avec 0, 1, 2, 3, 4 NA 
+table(apply(apply(d,2,is.na),1,sum))
+```
+
+```{r}
+qplot(as.factor(apply(apply(d,2,is.na),1,sum)), xlab = "Nombre de données manquantes par patient", ylab = "Nombre de patients", fill= I("slategray2"), col =I("lavenderblush4"))
+```
+
+Figue 1. Nombre de valeurs manquantes par patient.
+
+La base de données est globalement de bonnes qualité, en effet aucun sujet n'a plus de 4 valeurs manquantes (sur les 63 variables).
+
+```{r, eval = FALSE}
+#cb de NA pour chaque colonne
+apply(apply(d,2,is.na),2,sum)
+table(apply(apply(d,2,is.na),2,sum))
+
+prop.table(table(is.na(d$ADLD3P)))
+prop.table(table(is.na(d$URIN1)))
+```
+Si je regarde maintenant le nombre de valeurs manquantes pour chaque variable, je vois que ADLD3P (échelle ADL) et URIN1(volume urinaire des 24h) ont respectivivement 75% et 53% de données manquantes tandis que les autres variables n'ont aucune ou moins de 5% de données manquantes. 
+
+## Analyse descriptive préliminaire afin de repérer les incohérences
 
 ###Présentation des variables de l'examen clinique et biologique:
 
@@ -166,35 +210,19 @@ var_ad <- c("RESP", "CARD", "NEURO", "GASTR", "RENAL", "META", "HEMA", "SEPS", "
 #Je vérifie qu'elles sont toutes là
 #colnames(d)[!colnames(d) %in% c(var_quali_des, var_quanti_des, var_atcd, var_date, var_com, var_exam, var_ad)]
 ```
-##Données manquantes
-```{r}
-#Nb de sujets avec 0, 1, 2, 3, 4 NA 
-table(apply(apply(d,2,is.na),1,sum))
-#cb de NA pour chaque colonne
-apply(apply(d,2,is.na),2,sum)
-table(apply(apply(d,2,is.na),2,sum))
 
-prop.table(table(is.na(d$ADLD3P)))
-prop.table(table(is.na(d$URIN1)))
-```
-ADLD3P et URIN1 ont respectivivement 75% et 53% de données manquantes tandis que les autres variables n'ont aucune ou moins de 5% de données manquantes. Je ne prendrai donc pas en compte ces deux variables dans le calcul du score de propension et je laisse les autres variables telles quelles pour le moment. 
-Il n'y a pas de doublon.
 
-## Pas de doublons sujets
-```{r}
-d[duplicated(d$PTID),]
-```
+
 
 ## valeurs aberrantes
 
-Pour détecter les valeurs aberrantes je dispose de plusieurs méthodes. Je regarde le tableau descriptif en calculant pour chaque variable quantitative la moyenne, l'intervalle interquartile et surtout le range (voir annexe). Je croise également les variables fréquence cardiaque, pression artérielle et fréquence respiratoire à la recherche d'incohérence. Enfin je regarde la distribution des variables ce qui me permet de réperérer éventuellement d'autres incohérences. (voir annexe) Par exemple nous voyons un pic à 0 pour la variable WTKILO1 (nous l'avions déjà vu grâce au tableau descriptif, mais c'est un deuxième filet de sécurité). 
+Pour détecter les valeurs aberrantes je dispose de plusieurs méthodes. Je regarde le tableau descriptif en calculant pour chaque variable quantitative la moyenne, l'intervalle interquartile et surtout le range (tableau non présenté). Je croise également les variables fréquence cardiaque, pression artérielle et fréquence respiratoire à la recherche d'incohérence. Enfin je regarde la distribution des variables ce qui me permet de réperérer éventuellement d'autres incohérences. (voir annexe) Par exemple nous voyons un pic à 0 pour la variable WTKILO1 (nous l'avions déjà vu grâce au tableau descriptif, mais c'est un deuxième filet de sécurité). 
 
 ```{r, eval=FALSE}
-# Je fais un tableau descriptif pour répérer d'éventuels incohérence
+# Je fais un tableau descriptif pour répérer d'éventuels incohérence (resultats non présenté en tableau mais décrit dans le texte)
 write.table(print(do.call(rbind, lapply(c(var_quali_des, var_quanti_des, var_atcd, var_com, var_exam, var_ad), describe_all, d))), file="clipboard", sep="\t")
 range(d$LSTCTDTE)
 range(d$SADMDTE)
-
 ```
 
 ```{r}
@@ -229,6 +257,20 @@ ggsave(file="distrib bef dm.pdf", ml)
 print(ml)
 ```
 
+```{r}
+#SURVIE EN FONCTION DU SCORE DE GLASGOW
+
+#je coupe SCOMA1 en classe 
+d$SCOMAcut <- cut(d$SCOMA1, breaks=20*(0:5), include.lowest = TRUE)
+
+#plus score est élevé, plus le risque de deces est eleve. 
+ggsurv(survfit(Surv(T3D30, DTH30) ~ SCOMAcut, data=d), order.legend =FALSE)
+
+#Je supprime la variable SCOMACUT du dataset
+d$SCOMAcut <- NULL
+```
+
+Fig X. Décès en fonction du score de glasgow découpé en quintile.
 
 ```{r}
 # Modification des valeurs aberrantes
@@ -269,15 +311,13 @@ Un patient peut être en aplasie mais je ne suis pas sûr qu'une hyperleucocytos
 Hematocrite : une anémie chronique peut entrainer une anémie profonde avec une hématocrite de 10%, en dessous de cette valeur je mets NA. (un taux de 66% est possible). 
 Un taux de PAcO2 de 156 mmHg me semble complètement impossible, au delà de 100 mmHg je met NA.
 Un pH de 6.6 est extrêmement faible et n'est pas viable mais je ne suis pas sûre qu'on ne puisse pas l'observer en réanimation.  
-Une créatininémie de 2200umol/L ou 25 mg/dL est possible en cas d'insuffisance rénale terminale. Un volume urinaire de 0 et de 9000mL est possible également.  
+Une créatininémie de 2200umol/L ou 25 mg/dL est possible en cas d'insuffisance rénale terminale. Un volume urinaire de 0 et de 9000mL est possible également(mais cette variable n'est de toute façon pas utilisée pour l'analyse).  
 Une valeur normale d'albumine se situe entre 3.5 et 5 g/dL. Les patients avec un taux d'albumine supérieur à 10g/dL auront une valeur NA pour l'albumine.
 
-Les valeurs de natrémie, de kaliémie, de fréquence respiratoire, fréquence cardiaque, tension artéirelle et bilirubine semblent plausible
-
-http://www.srlf.org/wp-content/uploads/2015/11/0505-Reanimation-Vol14-N3-p177_185.pdf
+Les valeurs de natrémie, de kaliémie, de fréquence respiratoire, fréquence cardiaque, tension artéirelle et bilirubine semblent plausibles.  
 
 
-En observant ensemble la fréquence cardiaque, la fréquence respiratoire et la tension artérielle, je note certaines incohérences : parfois 2 de ces variables peuvent valoir 0 mais pas la troisième, et parfois une seule de ces variables vaut 0. Ainsi 1 patient à une tension artérielle à 0 mais une fréquence cardiaque et une fréquence respiratoire différente de 0, 47 patients ont une fréquence respiratoire à 0 mais une fréquence cardiaque et une tension artérielle différente de 0 et 3 patients ont une fréquence cardiaque à 0 mais une fréquence respiratoire et une tension artérielle différente de 0.  
+En observant ensemble la fréquence cardiaque, la fréquence respiratoire et la tension artérielle, je note certaines incohérences : parfois 2 de ces variables peuvent valoir 0 mais pas la troisième, et parfois une seule de ces variables vaut 0. Ainsi 1 patient à une tension artérielle à 0 mais une fréquence cardiaque et une fréquence respiratoire différente de 0, 47 patients ont une fréquence respiratoire à 0 mais une fréquence cardiaque et une tension artérielle différente de 0 et 3 patients ont une fréquence cardiaque à 0 mais une fréquence respiratoire et une tension artérielle différente de 0.
 
 Je modifie donc ces 3 variables selon les règles suivantes :
 -  Si deux de ces variables valait 0, alors la valeur de 0 était systématiquement attribuée à la troisième.  
@@ -286,102 +326,73 @@ Recodage du poids : si le poids est inférieur à 25 je remplace par une valeure
 
 
 ```{r}
-#Je regarde à nouveau le nombre de données manquantes
-#Nb de sujets avec 0, 1, 2, 3, 4 NA 
-table(apply(apply(d,2,is.na),1,sum))
-#cb de NA pour chaque colonne
-apply(apply(d,2,is.na),2,sum)
-table(apply(apply(d,2,is.na),2,sum))
-```
-#redecrire nombre de données manquantes!!
-
-```{r}
-#refaire en coupant SCOMA1 en classe et recuperer la courbe de survie pour var qualitative
-d$SCOMAcut <- cut(d$SCOMA1, breaks=5)
-#plot(d$SCOMA1, d$APS1) #le score APS ne nous aide pas
-#plus score est élevé, plus le risque de deces est eleve. 
-ggsurv(survfit(Surv(timeb, DTH30)~SCOMAcut, data=d), order.legend =FALSE)
-
-#Je supprime ces 2 variables du tableau
-d[ , c("SCOMAsup90", "SCOMAcut")] <- NULL
-```
-Fig X. Décès en fonction du score de glasgow découpé en quintile.
-
-#Possible erreur des variables T3D30 et DTH30
-```{r, eval = FALSE}
-d[d$T3D30 != d$timeb, c("timeb", "time", "T3D30", "DEATH", "DTH30")]
-#      timeb time T3D30 DEATH DTH30
-# 453      4    4    30     0     0
-# 488      6    6    30     0     0
-# 2338    21   21    30     0     0
-# 2811    10   10    30     0     0
-# 2907     2    2    30     0     0
-# 4783     9    9    30     0     0
-# 5123    28   28    30     0     0
-# 5437     8    8    30     0     0
-
-```
-8 sujets sont notés comme ayant une durée de suivi de 30 jours, or ils sont en fait perdus de vu avant 30 jours. J'ai donc recré une variable durée de suivi, time,  qui est la différence entre entre la date des dernières nouvelles (décès ou date de dernier contact) et la date d'admission, et j'ai ensuite crée la variable timeb telle que si cette durée était supérieure à 30, elle prenait alors la valeur 30. en comparant la variable timeb à la variable T3D30, je vois que les variables sont égales 2 à 2 pour chaque sujets exceptés les 8 sujets dont j'ai parlé ci dessus. J'ai donc remplacé la valeur de T3D30 pour ces sujets là par la valeure de timeb.
-Ces 8 sujets sont notés comme n'ayant pas eu d'évènement à 30 jours. Cela ne pose pas de problème si l'on fait un modèle de Cox qui prend en compte les perdus de vue, mais je souhaitais faire une régression logistique conditionnelle et dans ce cas je ne peux pas dire que les 8 sujets perdus de vue avant 30 jours ne sont pas mort à 30 jours et je choisi donc de mettre une donnée manquante pour ces 8 valeurs. Il s'agit peut être d'erreurs de saisie et je ne peux pas trancher. Dans le doute je prendrai donc les variables T3D30 et DTH30 sans les modifier, en supposant que la date d'admission ou la date des dernières nouvelles est erronée. 
-
-
-# Description des variables
-
-Je décris les variables dans le groupe des patients cathétérisés, dans le groupe des patients non cathétérisés et les deux groupes confondus.
-
-Variables quantitatives:
--  continues :
--  discrètes :
-- binaires
-variables qualitatives
-
-```{r}
 quanti <- c("AGE","EDU", "ADLD3P", "DAS2D3PC","SURV2MD1", "APS1", "SCOMA1", "WTKILO1", "TEMP1", "MEANBP1", "RESP1", "HRT1", "PAFI1", "PACO21", "PH1", "WBLC1", "HEMA1", "SOD1", "POT1", "CREA1", "BILI1", "ALB1", "URIN1")
 binaire <-  binaire <- c("SEX", "CARDIOHX", "CHFHX", "DEMENTHX", "PSYCHHX", "CHRPULHX", "RENALHX", "LIVERHX", "GIBLEDHX", "MALIGHX", "IMMUNHX", "TRANSHX", "AMIHX", "RESP", "CARD", "NEURO", "GASTR", "RENAL", "META", "HEMA", "SEPS", "TRAUMA", "ORTHO")
 quali <- c("RACE", "INCOME", "NINSCLAS", "CAT1", "CAT2", "CA")
 ```
-Pause dans les inclusions
 
 
-# Imputation des valeurs manquantes
+# IMPUTATION DES VALEURS MANQUANTES
 
-Je décide de ne garder que les variables avec moins de 20% de données manquantes et les sujets avec moins de 50% de données manquantes (excepté la variable date de décès bien sûr). Je ne tiens compte que des variables explicatives (je ne tiens pas compte du décès ni du traitement, qui n'est jamais NA de toutes façons, ni des dates d'entrée dans l'étude ou de sortie de l'hopital). J'imputerai les données manquantes restantes. Pour rappel certaines données sont notées comme manquantes car aberrantes.
+Les valeurs manquantes doivent absolument être prises en charge pour la suite du projet car on ne peut pas faire de score de propension pour les patients ayant une ou plusieurs variables explicatives manquantes.
 
-Je vais donc dans un premier temps observer les données manquantes par variable et par sujet. 
-```{r}
-d2 <- d[ , ! colnames(d) %in% c(var_date, "DEATH", "DTH30b")]
+## Règles d'imputation
+
+Règles de décision concernant l'imputation ou non des variables :  
+-  une variable avec plus de 20% de données manquantes ne sera pas imputée et ne sera pas inclue dans l'analyse.
+-  un patient avec plus de 50% de données manquantes ne sera pas inclu dans l'analyse.
+-  un patient n'ayant pas d'information concernant la variable swan ganz qui est la variable explicative d'interet ne sera pas inclu dans l'analyse car non informatif.
+-  j'imputerai les variables avec des valeurs manquantes uniquement si plus de 5% des patients on des valeurs manquantes, sinon je supprimerai simplement ces patients.
+
+## Description des valeurs manquantes (valeurs aberrantes transformées en valeurs manquantes)
+
+Je vais donc dans un premier temps observer les données manquantes par variable et par sujet, après avoir transformé les valeurs aberrantes en valeurs manquantes. 
+
+
+```{r, include= FALSE}
+d2 <- d[ , ! colnames(d) %in% c(var_date)] #les variables dates ne sont pas des variables explicatives
 nacol <- apply(d2, 2,function(x)sum(is.na(x))/length(x)*100)
 nacol[nacol>20]
 napat1 <- apply(d2, 1, function(x)sum(is.na(x)))
-napat <- apply(d,1,function(x)sum(is.na(x))/length(x)*100)
 table(napat1)
-table(napat)
 
 #la fonction md.pattern()de la librairie mice fait la même chose mais la sortie est illisible ici car nous avons trop de sujets et trop de variables.
 ```
-Le score d'autonomie ADL a environ 75% de données manquantes et la variable volume d'excrétion urinaire a plus de 50% de données manquantes. Je supprime donc ces deux variables de l'analyse.
-250 patient patients n'ont aucune donnée manquante, 5485(95.6%) patients ont au moins 1 donnée manquante dont : 1930 patients avec 1 donnée manquante, 2694 patients avec 2 de données manquantes, 796 patients avec 3 données manquantes, 64 patients avec 4 données manquantes et 1 patient avec 5 données manquantes. Tous les patients ont donc moins de 50% de données manquantes. Je les garde tous dans l'analyse.
 
-Je note également qu'il n'y a pas de valeurs manquantes concernant la variable d'intérêt Swan ganz in concernant l'outcome décès à 30 jours. 
-
+Comme vu précédemment, Le score d'autonomie ADL(ADLD3P) a environ 75% de données manquantes et la variable volume d'excrétion urinaire (URIN1) a plus de 50% de données manquantes. Je supprime donc ces deux variables de l'analyse.  
+250 patient patients n'ont aucune donnée manquante, 5485(95.6%) patients ont au moins 1 donnée manquante dont : 1930 patients avec 1 donnée manquante, 2698 patients avec 2 de données manquantes, 796 patients avec 3 données manquantes, 64 patients avec 4 données manquantes et 1 patient avec 5 données manquantes. Tous les patients ont donc moins de 50% de données manquantes.   
+Il n'y a pas de valeurs manquantes concernant la variable explicative d'intérêt Swan ganz
 
 ```{r}
 #je supprime les variables avec plus de 20% de donnees manquantes.
 d <- subset(d, select=-c(ADLD3P, URIN1))
-d2 <- d[ , ! colnames(d) %in% c(var_date, "DEATH", "DTH30b")]
-nacol <- apply(d2, 2,function(x)sum(is.na(x))/length(x)*100)
-nacol[nacol>0]
-napat1 <- apply(d2, 1, function(x)sum(is.na(x)))
-napat <- apply(d2,1,function(x)sum(is.na(x))/length(x)*100)
-table(napat1)
-table(napat)
 ```
 
-En supprimant ces 2 colonnes de l'analyse, j'ai 2397 patients avec au moins une donnée manquante, soit plus de 5 % de patients. Je ne peux donc pas simplement supprimer les patients avec des données manquantes.
-6 variables ont au moins une donnée manquante : la tension artérielle (15 NA), la fréquence cardiaque (60 NA), l'albuminémie (2 NA) l'hématocrite (8 NA), la PaCO2 (21 NA) et le poids (515 NA). 
+
+```{r, include = FALSE}
+d2 <- d[ , ! colnames(d) %in% c(var_date)]
+nacol <- apply(d2, 2,function(x)sum(is.na(x)))
+nacol[nacol>0]
+napat1 <- apply(d2, 1, function(x)sum(is.na(x)))
+table(napat1)
+```
+
+En supprimant ADLD3P et URIN1 de l'analyse, j'ai 608 patients avec au moins une donnée manquante, soit plus de 5 % de patients. Je ne peux donc pas simplement supprimer les patients avec des données manquantes.
+6 variables ont au moins une donnée manquante : la tension artérielle (15 NA), la fréquence cardiaque (60 NA), l'albuminémie (2 NA) l'hématocrite (8 NA), la PaCO2 (21 NA) et le poids (515 NA).   
 
 
-Je réalise ensuite une imputation multiple avec le package mice en faisant l'hypothèse que les données manquantes le sont aléatoirement. Je ne réalise qu'un seul jeu de de données imputé.
+J'impute les variables explicatives avec le package mice en faisant l'hypothèse que les données manquantes le sont aléatoirement. J'utililse la technique d'imputation multiples mais je ne réalise qu'un seul jeu de de données imputé. Toutes les variables du jeu de données sont prédictrices (y compris l'outcome DTH30, le temps de suivi jusqu'à cet outcome et SWAN, selon Jonathan A C Sterne et al 2009 BMJ) excepté les dates. Par contre je ne prend pas en compte le DEATH qui n'est pas notre outcome ni le temps de suivi jusqu'à DEATH.
+
+```{r}
+#Je supprime DEATH et time du jeu de données car on ne s'en servira plus
+d <- subset(d, select=-c(DEATH, time))
+```
+
+```{r}
+#back up des données avant imputation
+d2 <- d
+```
+
 
 ```{r}
 #mice bug si je laisse les dates
@@ -389,11 +400,11 @@ init = mice(d[ ,!colnames(d)%in%var_date], maxit=0)
 meth = init$method
 predM = init$predictorMatrix
 
-#Je ne veux pas que les variables ROWNAMES, PTID, SWAN, SWANT, time, DTH30b et timeb soit des prédicteurs.
-predM[ ,c("ROWNAMES", "PTID", "SWAN", "SWANT", "time", "DTH30b", "timeb")]=0
+#Je ne veux pas que les variables ROWNAMES et PTID soit des prédicteurs.(et SWANT est redondante)
+predM[ ,c("ROWNAMES", "PTID", "SWANT")]=0
 
-#Je ne veux pas que soit prédites les dates de décès DSCHDTE et la variable décès à 30j pour la régression logistique.
-meth[c("DTH30b")]=""
+#Je ne veux pas que soit prédites ni l'outcome ni la variable d'interet (elles ne sont pas NA de toutes façon mais par rigueur je l'écris quand meme)
+meth[c("DTH30", "SWAN", "SWANT")]=""
 
 #J'impute par imputation multiple
 set.seed(103)
@@ -409,35 +420,66 @@ d[ ,!colnames(d)%in%var_date] <- imputed
 # }
 ```
 
-# Description après imputation
+
+##"comparaison"" avant et après imputation
+Je compare les variables qui ont été imputées, avant et après imputation. Je ne compare que visuellement, je ne fais pas de test.
+
+
 ```{r}
-#Je retire ADLD3P et URIN1
-var_exam <- c("DAS2D3PC", "DNR1", "SURV2MD1", "APS1", "SCOMA1", "WTKILO1", "TEMP1", "MEANBP1", "RESP1", "HRT1", "PAFI1", "PACO21", "PH1", "WBLC1", "HEMA1", "SOD1", "POT1", "CREA1", "BILI1", "ALB1")
-#var_exam <- var_exam [! var_exam %in% c("ADLD3P", "URIN1")]
+#avant imputation
+kable(do.call(rbind, lapply(names(nacol[nacol>0]), describe_all, d2)))
+```
+
+Table. variables qui ont été imputées, avant imputation
+```{r}
+#apres imputation
+kable(do.call(rbind, lapply(names(nacol[nacol>0]), describe_all, d)))
+```
+
+Table. variables qui ont été imputées, après imputation
+
+La distribution des variables a l'air semblable avant et après imputation.
+
+
+# Description de toutes les variables après imputation
+```{r}
+#Je retire ADLD3P et URIN1 de var_exam
+var_exam <- var_exam [! var_exam %in% c("ADLD3P", "URIN1")]
+
+#description chez les swan=0
 des_noSWAN <- do.call(rbind, lapply(c(var_quali_des, var_quanti_des, var_atcd, var_com, var_exam, var_ad), describe_all, d[d$SWAN==0, ]))
+#description chez les swan=1
 des_SWAN <- do.call(rbind, lapply(c(var_quali_des, var_quanti_des, var_atcd, var_com, var_exam, var_ad), describe_all, d[d$SWAN==1, ]))
+#description tout traitement confondu
 des_all <- do.call(rbind, lapply(c(var_quali_des, var_quanti_des, var_atcd, var_com, var_exam, var_ad), describe_all, d))
+
+#mise en forme
 des_tot <- cbind(des_noSWAN[ , 1], des_SWAN[ , 1], des_all[ , 1:2])
 des_tot <- des_tot[str_sub(rownames(des_tot), -1, -1)!=0, ] 
 kable(des_tot)
 ```
 
 
-# Exploratoire
+Il me manque une information essentielle : je ne sais pas si les variables ont été mesurée à l'admission ou après pose de la sonde de swan ganz. Je vais considérer que c'est avant pose de la sonde, sinon ça n'a pas de sens.  
 
-```{r}
-fpca(y="DTH30b", x= c(var_ad, var_atcd, var_exam, var_com, vardes), data=d, partial="No")
+Je regarde les différences entre le groupe des patients cathétérisés et le groupe des patients non cathétérisés. Je ne réalise pas de test car une petite différence numériquement peut être significative du fait de la taille de l'échantillon. 
+Les patients traités par CCD sont plus souvent des hommes, avec une couverture médicale moins précaire, ils ont plus souvent une comorbidité cardiaque, avec une pression artérielle moyenne plus faible et une fréquence cardiaque plus élevée, plus souvent admis pour pathologie cardiaque que les patients non traités par CCD, et moins souvent admis pour pathologie respiratoire, ils ont une PAO2/FIO2 plus faible(ratio inferieur à 200 signe un syndrome de détresse respiratoire aigu), une pression artérielle en CO2 inferieur à la normale et plus faible que le groupe non traité, une creatininémie plus élevée et un score d'apache plus élevé.
 
-```
+Donc globalement, les patients traités par CCD sont dans un état cardiaque et rénal plus sévère et avait donc de base plus de risque de décéder. Il y a donc un biais d'indication et il faut donc absolument prendre en compte cette différence d'état de base en considération lorsque l'on teste si le traitement par CCD diminue le décès à 30 jours.  
+Pour cela, nous allons donc réaliser un appariemment sur le score de propension.
 
+
+# Appariemment sur le score de propension
+
+Le score de propension permet d'avoir pour chaque patient sa probabilité d'être traité par CCD, en fonction de ses charactéristiques de bases. On apparie ensuite un patient traité par CCD avec un patient non traité par CCD qui avait la même probabilité  d'être traité que la patient effectivement traité. On se place donc dans la situation d'un essai clinique randomisé ou chaque patient à la même probabilité de recevoir l'un ou l'autre des traitements.
 
 #Tests bivariés
 
 Je dois intégrer dans le score de propension les variables qui sont associées significativement avec le décès à 30 jours ou avec le décès à 30 jours et le traitement par cathétérisme. Pour cela je réalise deux séries de tests bivariés. Une première série testant l'association entre chaque variable et le décès à 30 jours et une deuxième série testant l'association entre chaque variable et le traitement par cathétérisme. Pour rappel, les variables ADLD3P et URIN1 ne sont pas dans l'analyse.
-J'utilise un modèle de régression logistique, la variable à expliquer étant soit la variable cathétérisme, soit la variable décès à 30 jours (variables toutes deux binaires) et la variable explicative étant chacune des variables à tester.  
+J'utilise des modèles de régression logistique à une variable explicative, la variable à expliquer étant soit la variable cathétérisme, soit la variable décès à 30 jours (variables toutes deux binaires) et la variable explicative étant chacune des variables à tester.  
 
-Les conditions de validité sont toujours respectées car j'ai 9 classes au maximum (variable CAT1), donc la condition des 5 à 10 variables par variable est toujours respectée.
-```{r}
+Les conditions de validité sont toujours respectées car j'ai 9 classes au maximum (variable CAT1) pour 1918 évènements, donc la condition des 5 à 10 variables par variable est toujours respectée.
+```{r, include = FALSE}
 #TESTS BIVARIES : 
 
 #Je retire ADLD3P et URIN1
@@ -473,7 +515,7 @@ list_death <- lapply(c(var_ad, var_atcd, var_exam, var_com, vardes), function(x)
   d$var <- d[,x]
   if (all(levels(as.factor(d$var)) %in% c(0,1))) d$var <- as.factor(d$var) 
   #mod <- glm(DEATH~var,d, family="binomial")
-  mod <- glm(DTH30b~var,d, family="binomial")
+  mod <- glm(DTH30~var,d, family="binomial")
   test <- summary(mod)
   
   if (nrow(coef(test))>2){ #cas variable explicative qualitative
@@ -510,9 +552,9 @@ dput(rownames(list_pval[list_pval$select==1,]))
 #            "CHRPULHX", "LIVERHX", "MALIGHX", "IMMUNHX", "TRANSHX", "AGE", 
 #            "INCOME", "NINSCLAS", "CAT1", "CAT2")
 
-#var avec DTH30b
+#var avec DTH30
 varps <- rownames(list_pval[list_pval$select==1,])
-kable(varps)
+
 
 #variables liées au décès et au traitement
 rownames(list_pval[list_pval$`coef pvalue DEATH`<0.05 & list_pval$`coef pvalue SWAN`<0.05, ])
@@ -531,7 +573,9 @@ rownames(list_pval[list_pval$`coef pvalue DEATH`>=0.05 & list_pval$`coef pvalue 
  "PH1"      "WBLC1"    "HEMA1"    "CREA1"    "BILI1"    "ALB1"     "CARDIOHX" "CHFHX"    "DEMENTHX"
  "PSYCHHX"  "CHRPULHX" "GIBLEDHX" "MALIGHX"  "AGE"      "INCOME"   "NINSCLAS"
 
-10 variables sont liées uniquement au cathétérisme :
+J'aurai donc 36 variables dans le score de propension.
+
+Les 10 variables liées uniquement au cathétérisme ne sont pas prises en comptes dans le score :
 "RENAL"   "TRAUMA"  "RESP1"   "HRT1"    "SOD1"    "IMMUNHX" "TRANSHX" "AMIHX"   "SEX"     "EDU"
 
 
@@ -607,7 +651,7 @@ d2.app <- d2.app[order(d2.app$paire, d2.app$SWAN==1),] #on réordonne selon la p
 mod_match <- matchit(formula(paste0("SWAN ~ ",paste(varps,collapse="+"))),
                      method = "nearest", replace = FALSE, ratio = 1, m.order = "smallest", caliper=0.2, data = d2[,c("SWAN",varps,"PTID")])
 #MatchIt ne sait pas gérer les NA (même si les colonnes de la formule n'ont pas de NA) => Je dois préciser les colonnes qui m'interesse dans data (celles où je sais qu'il n'y a pas de NA)
-#par exemple j'ai toujours des NA pour DTH30b
+#par exemple j'ai toujours des NA pour DTH30
 
 #-----
 #reconstitution du numéro de paire
@@ -1071,20 +1115,20 @@ Dans le futur, je préférerai quand même l'analyse de l'équilibre par la mét
 #Analyse avec d2.app = package Matching (methode David Hajage)
 
 #d2.app$DEATH <- as.numeric(as.character(d2.app$DEATH))
-d2.app$DTH30b <- as.numeric(as.character(d2.app$DTH30b))
+d2.app$DTH30 <- as.numeric(as.character(d2.app$DTH30))
 d2.app$SWAN <- as.numeric(as.character(d2.app$SWAN))
 #clogit(DEATH~SWAN + cluster(paire), method="efron", data=d2.app) #marche avec efron
-#clogit(DTH30b~SWAN + cluster(paire), method="efron", data=d2.app) #marche avec efron
-mod1 <- clogit(DTH30b~SWAN + strata(paire), method="efron", data=d2.app) #marche avec efron
+#clogit(DTH30~SWAN + cluster(paire), method="efron", data=d2.app) #marche avec efron
+mod1 <- clogit(DTH30~SWAN + strata(paire), method="efron", data=d2.app) #marche avec efron
 exp(coefficients(mod1))
 exp(confint(mod1))
 
 #coxph(Surv(rep(1, nrow(d2.app)),DEATH)~SWAN + cluster(paire), data=d2.app) #marche mais est-ce vraiment la même chose?
-coxph(Surv(rep(1, nrow(d2.app)),DTH30b)~SWAN + cluster(paire), data=d2.app) #marche mais est-ce vraiment la même chose?
+coxph(Surv(rep(1, nrow(d2.app)),DTH30)~SWAN + cluster(paire), data=d2.app) #marche mais est-ce vraiment la même chose?
 #glm(DEATH~SWAN, data=d2.app, family="binomial")
-glm(DTH30b~SWAN, data=d2.app, family="binomial")
+glm(DTH30~SWAN, data=d2.app, family="binomial")
 #glmer(DEATH~SWAN + (1|paire), data=d2.app, family = "binomial")
-glmer(DTH30b~SWAN + (1|paire), data=d2.app, family = "binomial")
+glmer(DTH30~SWAN + (1|paire), data=d2.app, family = "binomial")
 ```
 
 Pour répondre à la question "le cathétérisme cardiaque droit modifie-t-il la survie à 30 jours?", je peux utiliser deux méthodes différentes. Soit j'utilise une régression logistique conditionnelle, soit j'utilise un modèle de Cox. Dans les deux cas, j'utilise mon échantillon apparié et je stratifie sur le numéro de paire.
@@ -1094,10 +1138,10 @@ Pour répondre à la question "le cathétérisme cardiaque droit modifie-t-il la
 La variable à expliquer est la mort à 30 jours, la variable explicative est le cathétérisme cardiaque et je stratifie sur le paire.
 
 ```{r}
-d2.app$DTH30b <- as.numeric(as.character(d2.app$DTH30b))
+d2.app$DTH30 <- as.numeric(as.character(d2.app$DTH30))
 d2.app$SWAN <- as.numeric(as.character(d2.app$SWAN))
-mod1 <- clogit(DTH30b~SWAN + strata(paire), method="efron", data=d2.app) #marche avec efron
-#mod1 <- clogit(SWAN~DTH30b + strata(paire), method="efron", data=d2.app) #marche avec efron
+mod1 <- clogit(DTH30~SWAN + strata(paire), method="efron", data=d2.app) #marche avec efron
+#mod1 <- clogit(SWAN~DTH30 + strata(paire), method="efron", data=d2.app) #marche avec efron
 exp(coefficients(mod1))
 exp(confint(mod1))
 
@@ -1113,8 +1157,8 @@ Le coefficient du cathétérisme est significatif (pvalue<0.01), le cathétéris
     length(unique(d2.app$paire))
     #nombre d'évènement
     #nombre de strates sans evenements
-    noevt <- aggregate(d2.app[ ,c("paire", "DTH30b")], by = list(d2.app$paire), sum)
-    prop.table(table(noevt$DTH30b))
+    noevt <- aggregate(d2.app[ ,c("paire", "DTH30")], by = list(d2.app$paire), sum)
+    prop.table(table(noevt$DTH30))
     
 ```
 
@@ -1125,7 +1169,7 @@ A noter que contrairement à la régression logstique conditionnelle, les sujets
 
 
 ```{r}
-mod2 <- coxph(Surv(timeb,DTH30b) ~ SWAN + cluster(paire), data=d2.app) #J'utilise DTH30b afin d'avoir le même échantillon que pour la régression logistique conditionnelle.
+mod2 <- coxph(Surv(timeb,DTH30) ~ SWAN + cluster(paire), data=d2.app) #J'utilise DTH30 afin d'avoir le même échantillon que pour la régression logistique conditionnelle.
   z <- cox.zph(mod2, transform = "rank")
   cat("Test de Harrell\n\n")
   print(z)
@@ -1142,11 +1186,11 @@ mod2 <- coxph(Surv(timeb,DTH30b) ~ SWAN + cluster(paire), data=d2.app) #J'utilis
 
   #transformation en fonction du temps
   #decoupage par les temps d'evenement
-   ti <- sort(unique(c(0,d2.app$timeb[d2.app$DTH30b==1])))
+   ti <- sort(unique(c(0,d2.app$timeb[d2.app$DTH30==1])))
   slat <- d2.app
   slat$start <- 0
   slat$stop <- slat$timeb
-  slat$evt <- slat$DTH30b
+  slat$evt <- slat$DTH30
   slat <- survSplit(Surv(stop,evt)~.,slat,start="start",cut=ti)
   
   #variable dependante du temps
@@ -1182,7 +1226,7 @@ mod2 <- coxph(Surv(timeb,DTH30b) ~ SWAN + cluster(paire), data=d2.app) #J'utilis
     
     
     # #interpretation que j'aurai faite si j'avais trouvé une transformation satisfaisante
-    # mod <- coxph(Surv(timeb, DTH30b) ~ SWAN + at +  strata(paire), data = slat)
+    # mod <- coxph(Surv(timeb, DTH30) ~ SWAN + at +  strata(paire), data = slat)
     # test <- summary (mod)
     # 
     # S <- vcov(mod)
@@ -1206,7 +1250,7 @@ mod2 <- coxph(Surv(timeb,DTH30b) ~ SWAN + cluster(paire), data=d2.app) #J'utilis
     # cat(paste0("\nHR[95%CI] = ",HR, " [", IC[1], "-", IC[2], "] ", "pour t = ", t, " jours" ))
 
 # Interpretation du modèle de cox sans transformation 
-    mod2 <- coxph(Surv(timeb,DTH30b) ~ SWAN + cluster(paire), data=d2.app) #J'utilise DTH30b afin d'avoir le même échantillon que pour la régression logistique conditionnelle.
+    mod2 <- coxph(Surv(timeb,DTH30) ~ SWAN + cluster(paire), data=d2.app) #J'utilise DTH30 afin d'avoir le même échantillon que pour la régression logistique conditionnelle.
     test <- summary (mod2)
     test$robscore[3]
 #calcul du HR et de l'intervalle de confiance en utilisant la variance robuste. J'ai plus de 30 sujets je peux donc faire une approximation par la loi normale, d'après le théorème central limite et utiliser cette formule : 
@@ -1244,9 +1288,9 @@ vec_time_IC <- c(10,30)
 var <- "CCD"
 s$tps <- s[ ,"timeb"] 
 
-km <- survfit(Surv(tps,DTH30b)~SWAN , data=s, conf.int=.95)
-km0 <- survfit(Surv(tps,DTH30b)~SWAN , data=s[s$SWAN==0,], conf.int=.95)
-km1 <- survfit(Surv(tps,DTH30b)~SWAN, data=s[s$SWAN==1,], conf.int=.95)
+km <- survfit(Surv(tps,DTH30)~SWAN , data=s, conf.int=.95)
+km0 <- survfit(Surv(tps,DTH30)~SWAN , data=s[s$SWAN==0,], conf.int=.95)
+km1 <- survfit(Surv(tps,DTH30)~SWAN, data=s[s$SWAN==1,], conf.int=.95)
 
 #pour IC95%
 skmi0<-summary(km0, time=vec_time_IC-0.2)
@@ -1389,4 +1433,12 @@ ml <- marrangeGrob(.l,ncol=3,nrow=3,top = NULL)
 ggsave(file="distrib bef dm.pdf", ml)
 print(ml)
 
+```
+
+#Description des variables avant imputation
+```{r, eval=FALSE}
+# Je fais un tableau descriptif pour répérer d'éventuels incohérence
+write.table(print(do.call(rbind, lapply(c(var_quali_des, var_quanti_des, var_atcd, var_com, var_exam, var_ad), describe_all, d))), file="clipboard", sep="\t")
+range(d$LSTCTDTE)
+range(d$SADMDTE)
 ```

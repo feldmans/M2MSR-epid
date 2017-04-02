@@ -14,11 +14,12 @@ describe_qualitative <- function(vec_var, .data){
       nNA <- table(is.na(data))
       pNA <- round(prop.table(table(is.na(data))),3)
       if (is.na(nNA[2]))  {
-        if (which(names_levels==x)==2) nNA <- paste0 (0," (0%)") #NA pour ligne 1
+        if (which(names_levels==x)==1) nNA <- paste0 (0," (0%)") #NA pour ligne 1
         else nNA <- ""
       }
       else {
-        if (which(names_levels==x)==2){   #NA pour ligne 1
+        browser()
+        if (which(names_levels==x)==1){   #NA pour ligne 1
           nNA <- as.numeric (nNA[names(nNA)==TRUE])
           pNA <- as.numeric (pNA[names(pNA)==TRUE])*100
           nNA <- paste0(nNA," (",pNA,"%)")  
