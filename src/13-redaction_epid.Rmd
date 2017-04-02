@@ -20,9 +20,9 @@ opts_chunk$set(echo=FALSE, comment=NA, warning= FALSE, fig.width=6, fig.height=6
 
 Le cathétérisme cardiaque droit (CCD) est un examen invasif utilisé en soins intensif pour mesurer directement la fonction cardiaque, ce qui permettrait selon certains médecins une meilleure prise en charge du patient et donc une augmentation de la survie. Cependant pour montrer une telle causalité il faudrait un essai randomisé. Or nous avons ici les données d'une cohorte prospective, non interventionnelle, de patients hostpitalisés en réanimation, certains ayant été cathétérisés, d'autres non. La cathétérisation n'a pas été randomisée, il y a donc lieu de penser que l'examen a été réalisé préférentiellement chez certains types de patients, potentiellement les patients les plus graves qui ont donc plus de risque de décéder. Cela constitue un biais d'indication qui rend l'analyse de l'efficacité du CCD  ininterprêtable. Pour pouvoir analyser l'efficacité du CCD par sonde de swan Ganz, nous allons prendre en compte les biais d'indication propables à l'aide d'un score de propension, nous permettant d'améliorer le niveau de causalité de la relation CCD/Décès si elle existe.
 
-# ETAPES PRELIMINAIRES
+# I - ETAPES PRELIMINAIRES
 
-## Description de la base de donnees
+## 1) Description de la base de donnees
 
 ```{r}
 .dir <- dirname(getwd())
@@ -35,7 +35,7 @@ d <- read.csv2(paste0(.dir,"/data/rhc_devoir_epidemio.csv"))
 La base de données comporte les informations de 5735 patients pour 63 variables. Ce sont des données transversales avec une ligne par patient (pas de doublon), chaque variable ayant été mesurées une seule fois.
 
 
-## Data management
+## 2) Data management
 ```{r}
 #data management
 
@@ -91,10 +91,10 @@ levels(d$CA) <- c("Metastatic", "No", "Localized")
 d$CA <- relevel(d$CA, ref = "No")
 ```
 
-Je fais une première étape de datamanagement "basique" pour mettre les variables au bon format (dates, numérique et facteur), m'assurer que le numero de patient est en charactère, créer une variable SWAN en 0/1 et une autre en True/False selon les différents modèles utilisés par la suite. Je change également les "" en nocatégorie pour la variable catégorie ou en NA pour les dates. Je choisis No comme référence pour la variable CA
+Je fais une première étape de data management "basique" pour mettre les variables au bon format (dates, numérique et facteur), m'assurer que le numero de patient est en caractère, créer une variable SWAN en 0/1 et une autre en TRUE/FALSE selon les différents modèles utilisés par la suite. Je change également les "" en "no category"" pour la variable CAT2 ou en NA pour les dates. Je choisis No comme référence pour la variable CA.
 
-## Vérification de la durée de suivi
-```{r}
+## 3) Vérification de la durée de suivi
+```{r, include = FALSE}
 #Duree de suivi :
 
 #verification de la variable date de dernieres nouvelles (LSTCTDTE)
@@ -141,14 +141,15 @@ d[d$T3D30 != d$timeb, c("timeb", "time", "T3D30", "DEATH", "DTH30", "LSTCTDTE", 
 d$LSTCTDTE_bck <- NULL
 ```
 
-Je vérifie les variables dates de décès, date de dernieres nouvelles, et durée de suivi pour l'outccome décès à 30 jours :   
--  3 patients pour lesquels la date de décès est antérieure à la date de derniere nouvelle et 2151 pour lesquels date de dernières nouvelles est antérieure au décès. Je modifie la variable date de derniere nouvelle; si la datee de décès est non nulle, alors la date de dernières nouvelles est la date de décès.   
+Je vérifie les variables dates de décès, date de dernieres nouvelles, et durée de suivi pour l'outcome décès à 30 jours :   
+
+-  3 patients pour lesquels la date de décès est antérieure à la date de derniere nouvelle et 2151 pour lesquels date de dernières nouvelles est antérieure au décès. Je modifie la variable date de dernières nouvelles ; si la datee de décès est non nulle, alors la date de dernières nouvelles est la date de décès.   
 
 -  Nous prendrons comme outcome le décès à 30 jours, je dois donc utiliser les variables DTH30, qui est le décès à 30 jours et T3D30 qui est le temps de suivi adapté à cet outcome. Afin de vérifier ces 2 variables, je recree la variable temps de suivi pour l'outcome décès à 30 jours.  
-Pour cela je cree d'abord la variable temps de suivi comme la différence entre la date des dernieres nouvelles et la date d'admission dans l'étude.  Puis je modifie cette variable telle que si le temps de suivi est supérieur à 30 jours alors je le ramène à 30 jours. Et la variable décès à 30 jours est modifiée comme ceci à partir de la variable décès : si le décès est survenu après 30 jours, alors la variable décès à 30 jours vaut 0.  
+Pour cela je cree d'abord la variable temps de suivi comme la différence entre la date des dernières nouvelles et la date d'admission dans l'étude.  Puis je modifie cette variable telle que si le temps de suivi est supérieur à 30 jours alors je le ramène à 30 jours. Et la variable décès à 30 jours est modifiée comme ceci à partir de la variable décès : si le décès est survenu après 30 jours, alors la variable décès à 30 jours vaut 0.  
 En comparant les variables DTH30 et T3D30 avec celles recrées, je trouve une différence pour 8 patients qui ont un temps de suivi inférieur à 30 jours et qui sont pourtant noté avec un temps de suivi de 30 jours pour un outcome décès à 30 jours.Et ça ne vient pas de la modification de la variable date de dernières nouvelles. Pour la suite du devoir, je décide de prendre T3D30 comme variable de temps de suivi pour le décès à 30 jours.  
  
-##Données manquantes
+## 4) Données manquantes
 ```{r, eval = FALSE}
 #Nb de sujets avec 0, 1, 2, 3, 4 NA 
 table(apply(apply(d,2,is.na),1,sum))
@@ -160,7 +161,7 @@ qplot(as.factor(apply(apply(d,2,is.na),1,sum)), xlab = "Nombre de données manqu
 
 Figue 1. Nombre de valeurs manquantes par patient.
 
-La base de données est globalement de bonnes qualité, en effet aucun sujet n'a plus de 4 valeurs manquantes (sur les 63 variables).
+La base de données est globalement de bonne qualité, en effet aucun sujet n'a plus de 4 valeurs manquantes (sur les 63 variables). (Figure 1)
 
 ```{r, eval = FALSE}
 #cb de NA pour chaque colonne
@@ -170,25 +171,38 @@ table(apply(apply(d,2,is.na),2,sum))
 prop.table(table(is.na(d$ADLD3P)))
 prop.table(table(is.na(d$URIN1)))
 ```
-Si je regarde maintenant le nombre de valeurs manquantes pour chaque variable, je vois que ADLD3P (échelle ADL) et URIN1(volume urinaire des 24h) ont respectivivement 75% et 53% de données manquantes tandis que les autres variables n'ont aucune ou moins de 5% de données manquantes. 
+Si je regarde maintenant le nombre de valeurs manquantes pour chaque variable, je vois que ADLD3P (échelle ADL) et URIN1 (volume urinaire des 24h) ont respectivivement 75% et 53% de données manquantes tandis que les autres variables n'ont aucune ou moins de 5% de données manquantes. 
 
-## Analyse descriptive préliminaire afin de repérer les incohérences
 
-###Présentation des variables de l'examen clinique et biologique:
+## 5) Analyse descriptive préliminaire afin de repérer les incohérences
 
-Activities of daily living (ADL) : échelle d'autonomie de 0 à 12 (score>6 signe une dépendance)  
-Duke Activity Status Index (DASI) : auto-questionnaire de 12 items mesurant l'activité fonctionnelle. Le score va de 0 à 58.2, plus le score est élevé, meilleur est l'activité fonctionnelle. 
-DNR pour Do not resuscitate : 1 pour une interdiction de réanimation cardiopulmonaire, 0 sinon.  
-Probabilité de survie à 2 mois, estimée par model : de 0 à 1  
-APACHE III Acute Physiology scores : score de prediction du risque de mortalité de patients hospitalisés en soins intensifs. Plus le score est élevé plus le risque de mortalité est important. LE score va de 0 à 299 mais ici seule la partie physiologie du score est utilisée.  
-Le score de Glasgow évalue l'état de conscience du patient: un score de 3 équivaut à un coma profond, un score de 15 est un état de conscience normal.  
-Le rapport PAO2/FIO2 permet de diagnostiquer une agression pulmonaire aigue(rapport>300), un rapport <200 definissant le syndrome de detresse respiratoire aigue et l'ECMO est envisageable en cas de rapport <50.
-Un pH normal varie entre 7,38 et 7.42, le taux d'hématocrite normal est comprise entre 41 et 50% environ, La PaCO2 normale varie de 35 à 45mmHg.  
-Le taux d'albumine normal varie entre 25 et 44 g/L.  
+### a- Présentation des variables de l'examen clinique et biologique :
 
+-  ADLD3P = Activities of daily living (ADL) : échelle d'autonomie de 0 à 12 (score>6 signe une dépendance).  
+-  DAS2D3PC = Duke Activity Status Index (DASI) : auto-questionnaire de 12 items mesurant l'activité fonctionnelle. Le score va de 0 à 58.2, plus le score est élevé, meilleur est l'activité fonctionnelle.  
+-  DNR1 = Do not resuscitate : 1 pour une interdiction de réanimation cardiopulmonaire, 0 sinon.  
+-  SURV2MD1 = Probabilité de survie à 2 mois, estimée par model : de 0 à 1.  
+-  APS1 = APACHE III Acute Physiology scores : score de prediction du risque de mortalité de patients hospitalisés en soins intensifs. Plus le score est élevé plus le risque de mortalité est important. Le score va de 0 à 299 mais ici seule la partie physiologie du score est utilisée.  
+-  SCOMA1 = score de Glasgow. Ce score évalue l'état de conscience du patient: un score de 3 équivaut à un coma profond, un score de 15 est un état de conscience normal.  
+-  PAFI1 = rapport PAO2/FIO2. Il permet de diagnostiquer une agression pulmonaire aigue(rapport>300), un rapport <200 definissant le syndrome de detresse respiratoire aigue et l'ECMO est envisageable en cas de rapport <50.
+-  PH1 = pH. Un pH normal varie entre 7,38 et 7.42.  
+-  HEMA1 = taux d'hématocrite, normalement compris entre 41 et 50% environ.   
+-  PACO21 = Pression artérielle en CO2. La PaCO2 normale varie de 35 à 45mmHg.   
+-  ALB1 = taux d'albumine. Le taux d'albumine normal varie entre 25 et 44 g/L.   
+-   WTKILO1 = poids  
+-  TEMP1 = température corporelle  
+-  HRT1 = fréquence cardiaque  
+-  MEANBP1 = pression artérielle moyenne  
+-  RESP1 = fréquence respiratoire  
+-  SOD1 = natrémie  
+-  POT1 = kaliémie  
+-  CREA1 = créatininémie  
+-  BILI1 = bilirubinémie  
+-  URIN1 = volume urinaire des 24h  
 
 ```{r}
-#1/ Je regroupe mes variables pour faciliter la présentation de l'analyse
+#Je regroupe mes variables pour faciliter la présentation de l'analyse
+
 #variables socio demo
 vardes <- c("AGE", "SEX", "RACE", "EDU", "INCOME", "NINSCLAS")
 var_quali_des <- c("SEX", "RACE", "INCOME", "NINSCLAS")
@@ -214,9 +228,11 @@ var_ad <- c("RESP", "CARD", "NEURO", "GASTR", "RENAL", "META", "HEMA", "SEPS", "
 
 
 
-## valeurs aberrantes
+### b- valeurs aberrantes
 
-Pour détecter les valeurs aberrantes je dispose de plusieurs méthodes. Je regarde le tableau descriptif en calculant pour chaque variable quantitative la moyenne, l'intervalle interquartile et surtout le range (tableau non présenté). Je croise également les variables fréquence cardiaque, pression artérielle et fréquence respiratoire à la recherche d'incohérence. Enfin je regarde la distribution des variables ce qui me permet de réperérer éventuellement d'autres incohérences. (voir annexe) Par exemple nous voyons un pic à 0 pour la variable WTKILO1 (nous l'avions déjà vu grâce au tableau descriptif, mais c'est un deuxième filet de sécurité). 
+Pour détecter les valeurs aberrantes je dispose de plusieurs méthodes. Je regarde le tableau descriptif en calculant pour chaque variable quantitative la moyenne, l'intervalle interquartile et surtout le range (tableau non présenté). Je croise également les variables fréquence cardiaque, pression artérielle et fréquence respiratoire à la recherche d'incohérence.  
+
+Enfin je regarde la distribution des variables ce qui me permet de réperérer éventuellement d'autres incohérences (voir annexe : Figure A-1). Par exemple nous voyons un pic à 0 pour la variable WTKILO1 (nous l'avions déjà vu grâce au tableau descriptif, mais c'est un deuxième filet de sécurité). On observe également une pause dans les inclusions(variable SADMDTE), mais je ne sais pas comment le prendre en compte.
 
 ```{r, eval=FALSE}
 # Je fais un tableau descriptif pour répérer d'éventuels incohérence (resultats non présenté en tableau mais décrit dans le texte)
@@ -225,7 +241,7 @@ range(d$LSTCTDTE)
 range(d$SADMDTE)
 ```
 
-```{r}
+```{r, include = FALSE}
 # Je croise les variables pour chercher d'autres incohérences
 
 #creation d'une variables permettant d'observer le profil des patients ayant FC, et/ou FR et/ou TA =0
@@ -238,24 +254,7 @@ table(d$cleCR)
 d[d$cleCR=="FC0|FR0|0", c("HRT1", "RESP1", "MEANBP1", "DTH30", "SCOMA1", "TEMP1")]
 ```
 
-```{r, eval= FALSE}
-# distribution des items avant modification et imputation
 
-.l <- lapply(colnames(d), function(x){
-  if (class(d[,x])=="Date") {
-    #browser()
-    qplot(d[ ,x], main=x, xlab=NULL, fill=I("navajowhite3"), col=I("pink4"))
-  }
-  else{
-    if (length(names(table(d[,x])))>15) qplot(as.numeric(as.character(d[ ,x])), main=x, xlab=NULL, fill=I("navajowhite3"), col=I("pink4"))
-    else qplot(as.factor(d[ ,x]), main=x, xlab=NULL, fill=I("navajowhite3"), col=I("pink4"))  
-  }
-  
-})
-ml <- marrangeGrob(.l,ncol=3,nrow=3,top = NULL)
-ggsave(file="distrib bef dm.pdf", ml)
-print(ml)
-```
 
 ```{r}
 #SURVIE EN FONCTION DU SCORE DE GLASGOW
@@ -270,7 +269,7 @@ ggsurv(survfit(Surv(T3D30, DTH30) ~ SCOMAcut, data=d), order.legend =FALSE)
 d$SCOMAcut <- NULL
 ```
 
-Fig X. Décès en fonction du score de glasgow découpé en quintile.
+Figure 2. Décès en fonction du score de glasgow découpé en quintile.
 
 ```{r}
 # Modification des valeurs aberrantes
@@ -303,7 +302,8 @@ d$PACO21 <- ifelse(d$PACO21>100, NA, d$PACO21)
 d$ALB1 <- ifelse(d$ALB1>10, NA, d$ALB1)
 
 ```
-Les scores qui ont été mesurés, semblent tous avoir des résultats plausibles excepté le score de Glasgow qui a été modifié : d'un score allant de 3 à 15 on passe à un score allant de 0 à 100. Le score de 100 est probablement lié à un coma sévère car les patients avec un score plus élevé ont un risque de décès augmenté (alors que dans l'échelle d'origine, 3 correspond au coma sévère, et 15 à une conscience normale) (voir courbe ci desous).  
+
+Les scores qui ont été mesurés, semblent tous avoir des résultats plausibles excepté le score de Glasgow qui a été modifié : d'un score allant de 3 à 15 on passe à un score allant de 0 à 100. Le score de 100 est probablement lié à un coma sévère car les patients avec un score plus élevé ont un risque de décès augmenté (alors que dans l'échelle d'origine, 3 correspond au coma sévère, et 15 à une conscience normale) (Figure 2).  
 Je laisse la variable telle quelle car elle a de toute évidence été modifiée, je ne veux pas la remodifier une seconde fois.  
 La température corporelle peut aller de 27° en cas d'hypothermie profonde à 42-43° en cas de forte fièvre, donc je ne modifie pas.  
 Un patient ne peut pas avoir un poids de 0, ces 515 patients sont recodés en NA pour le poids.  
@@ -313,16 +313,17 @@ Un taux de PAcO2 de 156 mmHg me semble complètement impossible, au delà de 100
 Un pH de 6.6 est extrêmement faible et n'est pas viable mais je ne suis pas sûre qu'on ne puisse pas l'observer en réanimation.  
 Une créatininémie de 2200umol/L ou 25 mg/dL est possible en cas d'insuffisance rénale terminale. Un volume urinaire de 0 et de 9000mL est possible également(mais cette variable n'est de toute façon pas utilisée pour l'analyse).  
 Une valeur normale d'albumine se situe entre 3.5 et 5 g/dL. Les patients avec un taux d'albumine supérieur à 10g/dL auront une valeur NA pour l'albumine.
-
-Les valeurs de natrémie, de kaliémie, de fréquence respiratoire, fréquence cardiaque, tension artéirelle et bilirubine semblent plausibles.  
+Les valeurs de natrémie, kaliémie, fréquence respiratoire, fréquence cardiaque, pression artérielle moyenne et bilirubine semblent plausibles.  
 
 
 En observant ensemble la fréquence cardiaque, la fréquence respiratoire et la tension artérielle, je note certaines incohérences : parfois 2 de ces variables peuvent valoir 0 mais pas la troisième, et parfois une seule de ces variables vaut 0. Ainsi 1 patient à une tension artérielle à 0 mais une fréquence cardiaque et une fréquence respiratoire différente de 0, 47 patients ont une fréquence respiratoire à 0 mais une fréquence cardiaque et une tension artérielle différente de 0 et 3 patients ont une fréquence cardiaque à 0 mais une fréquence respiratoire et une tension artérielle différente de 0.
 
 Je modifie donc ces 3 variables selon les règles suivantes :
--  Si deux de ces variables valait 0, alors la valeur de 0 était systématiquement attribuée à la troisième.  
--  Si une seule de ces variables valait 0 alors elle était systématiquement transformée en valeur manquante.
-Recodage du poids : si le poids est inférieur à 25 je remplace par une valeure manquante.
+
+-  Si deux de ces variables valait 0, alors la valeur de 0 était systématiquement attribuée à la troisième.   
+-  Si une seule de ces variables valait 0 alors elle était systématiquement transformée en valeur manquante.  
+
+
 
 
 ```{r}
@@ -332,19 +333,20 @@ quali <- c("RACE", "INCOME", "NINSCLAS", "CAT1", "CAT2", "CA")
 ```
 
 
-# IMPUTATION DES VALEURS MANQUANTES
+# II - IMPUTATION DES VALEURS MANQUANTES
 
 Les valeurs manquantes doivent absolument être prises en charge pour la suite du projet car on ne peut pas faire de score de propension pour les patients ayant une ou plusieurs variables explicatives manquantes.
 
-## Règles d'imputation
+## 1) Règles d'imputation
 
 Règles de décision concernant l'imputation ou non des variables :  
--  une variable avec plus de 20% de données manquantes ne sera pas imputée et ne sera pas inclue dans l'analyse.
--  un patient avec plus de 50% de données manquantes ne sera pas inclu dans l'analyse.
--  un patient n'ayant pas d'information concernant la variable swan ganz qui est la variable explicative d'interet ne sera pas inclu dans l'analyse car non informatif.
--  j'imputerai les variables avec des valeurs manquantes uniquement si plus de 5% des patients on des valeurs manquantes, sinon je supprimerai simplement ces patients.
 
-## Description des valeurs manquantes (valeurs aberrantes transformées en valeurs manquantes)
+-  une variable avec plus de 20% de données manquantes ne sera pas imputée et ne sera pas inclue dans l'analyse.  
+-  un patient avec plus de 50% de données manquantes ne sera pas inclu dans l'analyse.  
+-  un patient n'ayant pas d'information concernant la variable swan ganz qui est la variable explicative d'interet ne sera pas inclu dans l'analyse car non informatif.  
+-  j'imputerai les variables avec des valeurs manquantes uniquement si plus de 5% des patients on des valeurs manquantes, sinon je supprimerai simplement ces patients.  
+
+## 2) Description des valeurs manquantes (valeurs aberrantes transformées en valeurs manquantes)
 
 Je vais donc dans un premier temps observer les données manquantes par variable et par sujet, après avoir transformé les valeurs aberrantes en valeurs manquantes. 
 
@@ -361,7 +363,7 @@ table(napat1)
 
 Comme vu précédemment, Le score d'autonomie ADL(ADLD3P) a environ 75% de données manquantes et la variable volume d'excrétion urinaire (URIN1) a plus de 50% de données manquantes. Je supprime donc ces deux variables de l'analyse.  
 250 patient patients n'ont aucune donnée manquante, 5485(95.6%) patients ont au moins 1 donnée manquante dont : 1930 patients avec 1 donnée manquante, 2698 patients avec 2 de données manquantes, 796 patients avec 3 données manquantes, 64 patients avec 4 données manquantes et 1 patient avec 5 données manquantes. Tous les patients ont donc moins de 50% de données manquantes.   
-Il n'y a pas de valeurs manquantes concernant la variable explicative d'intérêt Swan ganz
+Il n'y a pas de valeurs manquantes concernant la variable explicative d'intérêt SWAN (SWAN = 0 pas de traitement par CCD, SWAN = 1 traitement par CCD).
 
 ```{r}
 #je supprime les variables avec plus de 20% de donnees manquantes.
@@ -381,7 +383,7 @@ En supprimant ADLD3P et URIN1 de l'analyse, j'ai 608 patients avec au moins une 
 6 variables ont au moins une donnée manquante : la tension artérielle (15 NA), la fréquence cardiaque (60 NA), l'albuminémie (2 NA) l'hématocrite (8 NA), la PaCO2 (21 NA) et le poids (515 NA).   
 
 
-J'impute les variables explicatives avec le package mice en faisant l'hypothèse que les données manquantes le sont aléatoirement. J'utililse la technique d'imputation multiples mais je ne réalise qu'un seul jeu de de données imputé. Toutes les variables du jeu de données sont prédictrices (y compris l'outcome DTH30, le temps de suivi jusqu'à cet outcome et SWAN, selon Jonathan A C Sterne et al 2009 BMJ) excepté les dates. Par contre je ne prend pas en compte le DEATH qui n'est pas notre outcome ni le temps de suivi jusqu'à DEATH.
+J'impute les variables explicatives avec le package mice en faisant l'hypothèse que les données manquantes le sont aléatoirement. J'utililse la technique d'imputation multiples mais je ne réalise qu'un seul jeu de de données imputé. Toutes les variables du jeu de données sont prédictrices (y compris l'outcome DTH30, le temps de suivi jusqu'à cet outcome et SWAN, selon Jonathan A C Sterne et al 2009 BMJ) excepté les dates. Par contre je ne prend pas en compte DEATH qui n'est pas notre outcome ni le temps de suivi jusqu'à DEATH.
 
 ```{r}
 #Je supprime DEATH et time du jeu de données car on ne s'en servira plus
@@ -394,7 +396,7 @@ d2 <- d
 ```
 
 
-```{r}
+```{r, message = FALSE}
 #mice bug si je laisse les dates
 init = mice(d[ ,!colnames(d)%in%var_date], maxit=0) 
 meth = init$method
@@ -421,7 +423,7 @@ d[ ,!colnames(d)%in%var_date] <- imputed
 ```
 
 
-##"comparaison"" avant et après imputation
+## 3) Descrition des variables imputées avant et après imputation
 Je compare les variables qui ont été imputées, avant et après imputation. Je ne compare que visuellement, je ne fais pas de test.
 
 
@@ -430,18 +432,18 @@ Je compare les variables qui ont été imputées, avant et après imputation. Je
 kable(do.call(rbind, lapply(names(nacol[nacol>0]), describe_all, d2)))
 ```
 
-Table. variables qui ont été imputées, avant imputation
+Table 1. Variables qui ont été imputées, avant imputation
 ```{r}
 #apres imputation
 kable(do.call(rbind, lapply(names(nacol[nacol>0]), describe_all, d)))
 ```
 
-Table. variables qui ont été imputées, après imputation
+Table 2. Variables qui ont été imputées, après imputation
 
 La distribution des variables a l'air semblable avant et après imputation.
 
 
-# Description de toutes les variables après imputation
+# III - DESCRIPTION DE LA POPULATION DE L'ETUDE (après imputation)
 ```{r}
 #Je retire ADLD3P et URIN1 de var_exam
 var_exam <- var_exam [! var_exam %in% c("ADLD3P", "URIN1")]
@@ -459,21 +461,25 @@ des_tot <- des_tot[str_sub(rownames(des_tot), -1, -1)!=0, ]
 kable(des_tot)
 ```
 
+Table 3. Caractéristiques de base des patients (après imputation des valeurs manquantes).   
+*variable quantitative
+
 
 Il me manque une information essentielle : je ne sais pas si les variables ont été mesurée à l'admission ou après pose de la sonde de swan ganz. Je vais considérer que c'est avant pose de la sonde, sinon ça n'a pas de sens.  
 
-Je regarde les différences entre le groupe des patients cathétérisés et le groupe des patients non cathétérisés. Je ne réalise pas de test car une petite différence numériquement peut être significative du fait de la taille de l'échantillon. 
-Les patients traités par CCD sont plus souvent des hommes, avec une couverture médicale moins précaire, ils ont plus souvent une comorbidité cardiaque, avec une pression artérielle moyenne plus faible et une fréquence cardiaque plus élevée, plus souvent admis pour pathologie cardiaque que les patients non traités par CCD, et moins souvent admis pour pathologie respiratoire, ils ont une PAO2/FIO2 plus faible(ratio inferieur à 200 signe un syndrome de détresse respiratoire aigu), une pression artérielle en CO2 inferieur à la normale et plus faible que le groupe non traité, une creatininémie plus élevée et un score d'apache plus élevé.
+Je regarde les différences de caractéristiques de base entre le groupe des patients cathétérisés et le groupe des patients non cathétérisés (Table 3). Je ne réalise pas de test car une petite différence numériquement peut être significative du fait de la taille de l'échantillon.  
+Les patients traités par CCD sont plus souvent des hommes, avec une couverture médicale moins précaire, ils ont plus souvent une comorbidité cardiaque, avec une pression artérielle moyenne plus faible et une fréquence cardiaque plus élevée, plus souvent admis pour pathologie cardiaque que les patients non traités par CCD, et moins souvent admis pour pathologie respiratoire, ils ont une PAO2/FIO2 plus faible(ratio inferieur à 200 signe un syndrome de détresse respiratoire aigu), une pression artérielle en CO2 inferieur à la normale et plus faible que le groupe non traité, une creatininémie plus élevée et un score d'apache plus élevé. 
 
 Donc globalement, les patients traités par CCD sont dans un état cardiaque et rénal plus sévère et avait donc de base plus de risque de décéder. Il y a donc un biais d'indication et il faut donc absolument prendre en compte cette différence d'état de base en considération lorsque l'on teste si le traitement par CCD diminue le décès à 30 jours.  
 Pour cela, nous allons donc réaliser un appariemment sur le score de propension.
 
 
-# Appariemment sur le score de propension
+# IV - Appariemment sur le score de propension
 
 Le score de propension permet d'avoir pour chaque patient sa probabilité d'être traité par CCD, en fonction de ses charactéristiques de bases. On apparie ensuite un patient traité par CCD avec un patient non traité par CCD qui avait la même probabilité  d'être traité que la patient effectivement traité. On se place donc dans la situation d'un essai clinique randomisé ou chaque patient à la même probabilité de recevoir l'un ou l'autre des traitements.
 
-#Tests bivariés
+
+## 1) Sélection des variables à intégrer : tests bivariés
 
 Je dois intégrer dans le score de propension les variables qui sont associées significativement avec le décès à 30 jours ou avec le décès à 30 jours et le traitement par cathétérisme. Pour cela je réalise deux séries de tests bivariés. Une première série testant l'association entre chaque variable et le décès à 30 jours et une deuxième série testant l'association entre chaque variable et le traitement par cathétérisme. Pour rappel, les variables ADLD3P et URIN1 ne sont pas dans l'analyse.
 J'utilise des modèles de régression logistique à une variable explicative, la variable à expliquer étant soit la variable cathétérisme, soit la variable décès à 30 jours (variables toutes deux binaires) et la variable explicative étant chacune des variables à tester.  
@@ -564,57 +570,58 @@ rownames(list_pval[list_pval$`coef pvalue DEATH`<0.05 & list_pval$`coef pvalue S
 rownames(list_pval[list_pval$`coef pvalue DEATH`>=0.05 & list_pval$`coef pvalue SWAN`<0.05, ])
 ```
 
-2 variables sont liées au décès uniquement : 
-"TEMP1"   "LIVERHX"
+2 variables sont liées au décès uniquement : TEMP1 et LIVERHX.  
 
-34 variables sont liées au décès et au traitement par cathétérisme :
- "RESP"     "CARD"     "NEURO"    "GASTR"    "HEMA"     "SEPS"     "CAT1"     "CAT2"     "CA"      
- "DAS2D3PC" "DNR1"     "SURV2MD1" "APS1"     "SCOMA1"   "WTKILO1"  "MEANBP1"  "PAFI1"    "PACO21"  
- "PH1"      "WBLC1"    "HEMA1"    "CREA1"    "BILI1"    "ALB1"     "CARDIOHX" "CHFHX"    "DEMENTHX"
- "PSYCHHX"  "CHRPULHX" "GIBLEDHX" "MALIGHX"  "AGE"      "INCOME"   "NINSCLAS"
+34 variables sont liées au décès et au traitement par cathétérisme : RESP, CARD, NEURO, GASTR, HEMA, SEPS, CAT1, CAT2, CA, DAS2D3PC, DNR1, SURV2MD1, APS1, SCOMA1, WTKILO1, MEANBP1, PAFI1, PACO21, PH1, WBLC1, HEMA1, CREA1, BILI1, ALB1, CARDIOHX, CHFHX, DEMENTHX, PSYCHHX, CHRPULHX, GIBLEDHX, MALIGHX, AGE, INCOME, NINSCLAS.  
 
-J'aurai donc 36 variables dans le score de propension.
+J'aurai donc 36 variables dans le score de propension.  
 
-Les 10 variables liées uniquement au cathétérisme ne sont pas prises en comptes dans le score :
-"RENAL"   "TRAUMA"  "RESP1"   "HRT1"    "SOD1"    "IMMUNHX" "TRANSHX" "AMIHX"   "SEX"     "EDU"
+Les 10 variables liées uniquement au cathétérisme ne sont pas prises en comptes dans le score : RENAL, TRAUMA, RESP1, HRT1, SOD1, IMMUNHX, TRANSHX, AMIHX, SEX, EDU.
 
 
-# Score de Propension
 
-Afin d'équilibrer les groupes, je vais calculer un score de propension qui est la propabilité pour chaque patient d'être traité par la sonde de swan ganz. Pour cela je crée un modèle linéaire avec comme outcome le traitement par swan ganz et comme variables explicatives toutes les variables liées au décès à 30j uniquement(facteurs pronostiques) ou au décès et au traitement(facteurs de confusion). Je n'intègre pas les variables liées uniquement au traitement pour ne pas perdre de puissance à la fin.
+## 2) Calcul du score de Propension
 
-Condition de validité :
-C'est une régression logistique, je dois avoir 5 à 10 évènement par variable. J'ai 36 variables explicatives dans le score de propension dont 5 variables qualitatives : 9 classes pour CAT1, 7 classes pour CAT2, 3 classes pour CA, 4 classes pour INCOME, 6 classes pour NINSCLAS. Ces variables qualitatives seront donc transformées en 9+7+3+4+6-5= 24 variables binaires. Soit l'équivalent de 36-5+24 = 55 variables dans le modèle logistique pour 2184 évènements. J'ai donc plus de 10 évènements par variable explicative, les conditions de validité sont respectées.
+Je calcule le score de propension à partir d'un modèle de régression logistique avec comme outcome le traitement par swan ganz et comme variables explicatives toutes les variables liées au décès à 30j uniquement(facteurs pronostiques) ou au décès et au traitement(facteurs de confusion). Je n'intègre pas les variables liées uniquement au traitement pour ne pas perdre de puissance à la fin.
 
-```{r}
+Condition de validité :  
+C'est une régression logistique, je dois avoir 5 à 10 évènement par variable. J'ai 36 variables explicatives dans le score de propension dont 5 variables qualitatives : 9 classes pour CAT1, 7 classes pour CAT2, 3 classes pour CA, 4 classes pour INCOME, 6 classes pour NINSCLAS. Ces variables qualitatives seront donc transformées en 9+7+3+4+6-5= 24 variables binaires. Soit l'équivalent de 36-5+24 = 55 variables dans le modèle logistique pour 1918 évènements. J'ai donc plus de 10 évènements par variable explicative, les conditions de validité sont respectées.
+
+```{r, include = FALSE}
 #score de propension
 ps <- glm(formula(paste0("SWAN ~ ",paste(varps,collapse="+"))), data = d, family="binomial")
 
 d2 <- d[apply(apply(d[ ,varps], 2, is.na),1,sum)==0, ] #J'elimine les lignes avec au moins 1 NA dans les variables slectionnes varps
 d2$logitps <- as.vector(predict(ps, type = "response")) #response is the default for binomial model
 
-
+#conditions de validité : nombre d'evenements :
+table(d$DTH30)
+```
+```{r}
 #Histogramme du score de propension en fonction du groupe de traitement
 prs_df <- data.frame(pr_score = predict(ps, type = "response"), 
                      SWAN = ps$model$SWAN)
-labs <- paste("actual intervention:", c("no SWAN-GANZ", "SWAN-GANZ"))
+labs <- paste("actual intervention:", c("no CCD", "CCD"))
 prs_df %>%
   mutate(SWAN = ifelse(SWAN == 1, labs[2], labs[1])) %>%
   ggplot(aes(x = pr_score)) +
   geom_histogram(color = "white") +
   facet_wrap(~SWAN) +
-  xlab("Probability of having a SWAN GANZ") +
+  xlab("Probabilité d'être traité par CCD") +
   theme_bw()
-
 ```
 
-Figure x. Distribution de la probablité d'être cathétérisé selon qu'ils ont effectivement été cathétérisé ou non.  
+Figure 3. Distribution de la probablité d'être traité par CCD selon le traitement effectif par CCD.  
 
-On voit que la distribution du score n'est pas la même parmi les patients ayant été cathétérisé et ceux n'ayant pas été cathétérisé : beaucoup de patient n'ayant pas été cathétérisé avait une faible probabilité d'être cathétérisé (distribution en L), alors que la distribution est plutôt en cloche centré autour de 0.5(distribution en cloche). On comprend donc que nécessairement l'appariemment va supprimer de nombreux patients.
+On voit que la distribution du score n'est pas la même parmi les patients ayant été cathétérisé et ceux n'ayant pas été cathétérisé : beaucoup de patient n'ayant pas été cathétérisé avait une faible probabilité d'être cathétérisé (distribution en L), alors que la distribution est plutôt en cloche centré autour de 0.5 pour les patients ayant été cathétérisé (Figure 3). On comprend donc que nécessairement l'appariemment va supprimer de nombreux patients.
 
 
 
-#Appariemment sur le score de propension
+## 3) Appariemment sur le score de propension
+
+A partir du score de propension, j'apparie un sujet cathétérisé avec un sujet non cathétérisé ayant un score de propension proche c'est à dire une probabilité d'être cathétérisé proche. Le sujets non appariés sont écartés de l'analyse. Les sujets devrait donc se ressembler dans les 2 groupes. 
+
+Deux packages principalement nous permette de réaliser l'appariemment; le package Matching et le package MatchIt. Le package Matching est celui que je trouve le plus simple pour reconstituer le numéro de paire et qui conserve le plus de patients en gardant les memes paramètres. 
 
 ```{r}
 #=============================
@@ -622,8 +629,7 @@ On voit que la distribution du score n'est pas la même parmi les patients ayant
 #cours de David Hajage, MD PhD, département de biostatistiques de la Pitié Salpétriêre
 
 #-----
-#Le traitement (ici SWan Ganz) doit être en true false pour le package matching
-d2$SWANT <- ifelse(d2$SWAN==1, T, F)
+#Le traitement (ici SWan Ganz) doit être en true false pour le package matching, je prend donc la variable "SWANT" 
 
 #-----
 #appariement
@@ -684,7 +690,12 @@ d2.appbis <- d2.appbis[order(d2.appbis$paire, d2.appbis$SWAN==1), ]
 
 #si jamais j'ai finalement besoin des distances :
 dta_m <- match.data(mod_match) 
-dtm <- merge(d2.appbis, dta_m[,c("PTID","distance","weights")], by="PTID", all=T)
+dtm <- merge(d2.appbis, dta_m[,c("PTID","distance","weights")], by="PTID", all=T) 
+
+# #après vérification, distance est en fait logitps...
+# mean(dtm$distance)
+# mean(dtm$logitps)
+
 
 #=============================
 #J'ai donc deux tableaux : 
@@ -694,21 +705,51 @@ dtm <- merge(d2.appbis, dta_m[,c("PTID","distance","weights")], by="PTID", all=T
 
 ```
 
-A partir du score de propension, je vais apparier un sujet cathétériser avec un sujet non cathétérisé ayant un score de propension proche c'est à dire une probabilité d'être cathétérisé proche. Le sujets non appariés sont écartés de l'analyse. Les sujets devrait donc se ressembler dans les 2 groupes. J'utilise un caliper de 0.2, c'est à dire un seuil d'appariemme,t de 0.2 x sd(logit(score de propension)). 
-
-## nombre de patients gardés
-
-
-# Vérification de l'équilibre des variables entre les deux groupes après appariemment
+J'utilise un caliper de 0.2, c'est à dire un seuil d'appariemment de 0.2 x sd(logit(score de propension)). 
+En utilisant le package Matching (fonction Match), sans remise, sans ex aequo, avec un ratio 1:1 et avec un caliper de 0.2, je conserve 3142 patients,  1571 dans chaque groupe.
 
 
 
-```{r}
+
+## 4) Vérification de l'équilibre des variables entre les deux groupes après appariemment
+
+L'appariemment a normalement permis d'avoir des patients globalement comparables en terme de charactéristiques de base, car ayant la même probabilité d'être traité par CCD dans les deux groupes. Il se peut cependant que certaines variables soit mal équilibrée, et c'est ce que nous allons vérifier ici. Seules les variables ayant servie à construire le score de propension doivent être regardées.
+
+
+Tout d'abord, je transforme mes variables qualitatives en n-k variables binaires, k étant le nombre de classe de la variable qualitative. 
+
+```{r, include = FALSE}
 # Je transforme les qualitatives en binaires. 
 
 varps_quanti <- varps[sapply(varps, function(variable) length(levels(dtm[,variable]))<=2)]
 varps_quali <- varps[!varps%in% varps_quanti]
 
+#----------------------
+#jeu avant appariemment
+dbis <- d2
+for (j in varps_quali){
+  num <- which(varps_quali==j)
+  a <- model.matrix( ~ dbis[ ,j])
+  #pour avoir un nom de variable reconnaissable dans les schéma (si on laisse tel quel ça donne dbis[ ,j] CHF par exemple)
+  colnames(a) <- gsub("dbis",j,  colnames(a))
+  colnames(a) <- gsub("\\[", "",  colnames(a))
+  colnames(a) <- gsub("\\]", "",  colnames(a))
+  colnames(a) <- gsub("\\,", "",  colnames(a))
+  colnames(a) <- gsub("j", "",  colnames(a))
+  colnames(a) <- gsub(" ", "_",  colnames(a))
+  #créer les  variables binaires
+  for (i in 1:(length(colnames(a))-1)){
+    dbis[ ,colnames(a)[i+1]] <- a[ ,i+1]
+  }
+  #créer un vecteur avec les noms de variables bianires crées
+  vec_tmp <- colnames(a)[-1]
+  vec_var <- if(num==1) vec_tmp else c(vec_tmp, vec_var) 
+}
+#retirer les variables qualitatives non binarisees
+dbis[ ,varps_quali] <- NULL
+d2_b <- dbis
+
+#----------------------
 #jeu apparié (package matching)
 dbis <- d2.app
 for (j in varps_quali){
@@ -733,107 +774,34 @@ for (j in varps_quali){
 dbis[ ,varps_quali] <- NULL
 d2_app_b <- dbis
 
-#jeu apparié (package matchit)
-dbis <- dtm
-for (j in varps_quali){
-  num <- which(varps_quali==j)
-  a <- model.matrix( ~ dbis[ ,j])
-  #pour avoir un nom de variable reconnaissable dans les schéma (si on laisse tel quel ça donne dbis[ ,j] CHF par exemple)
-  colnames(a) <- gsub("dbis",j,  colnames(a))
-  colnames(a) <- gsub("\\[", "",  colnames(a))
-  colnames(a) <- gsub("\\]", "",  colnames(a))
-  colnames(a) <- gsub("\\,", "",  colnames(a))
-  colnames(a) <- gsub("j", "",  colnames(a))
-  colnames(a) <- gsub(" ", "_",  colnames(a))
-  #créer les  variables binaires
-  for (i in 1:(length(colnames(a))-1)){
-    dbis[ ,colnames(a)[i+1]] <- a[ ,i+1]
-  }
-  #créer un vecteur avec les noms de variables bianires crées
-  vec_tmp <- colnames(a)[-1]
-  vec_var <- if(num==1) vec_tmp else c(vec_tmp, vec_var) 
-}
-#retirer les variables qualitatives non binarisees
-dbis[ ,varps_quali] <- NULL
-dtm_b <- dbis
 
-#jeu total
-dbis <- d2
-for (j in varps_quali){
-  num <- which(varps_quali==j)
-  a <- model.matrix( ~ dbis[ ,j])
-  #pour avoir un nom de variable reconnaissable dans les schéma (si on laisse tel quel ça donne dbis[ ,j] CHF par exemple)
-  colnames(a) <- gsub("dbis",j,  colnames(a))
-  colnames(a) <- gsub("\\[", "",  colnames(a))
-  colnames(a) <- gsub("\\]", "",  colnames(a))
-  colnames(a) <- gsub("\\,", "",  colnames(a))
-  colnames(a) <- gsub("j", "",  colnames(a))
-  colnames(a) <- gsub(" ", "_",  colnames(a))
-  #créer les  variables binaires
-  for (i in 1:(length(colnames(a))-1)){
-    dbis[ ,colnames(a)[i+1]] <- a[ ,i+1]
-  }
-  #créer un vecteur avec les noms de variables bianires crées
-  vec_tmp <- colnames(a)[-1]
-  vec_var <- if(num==1) vec_tmp else c(vec_tmp, vec_var) 
-}
-#retirer les variables qualitatives non binarisees
-dbis[ ,varps_quali] <- NULL
-d2_b <- dbis
+#--------------------------
+#Je prend donc ces deux jeux de données pour regarder l'appariemment:
+d2_app_b
+d2_b
+```
 
-#nouvelles variables varps
-varps_new <- names(dbis)[names(dbis) %in% varps]
-new_bin <- names(dbis)[! names(dbis) %in% names(d2)]
+
+```{r}
+#nouvelles variables varps (inclus les variables binaires nouvellement créées)
+varps_new <- names(d2_b)[names(d2_b) %in% varps]
+new_bin <- names(d2_b)[! names(d2_b) %in% names(d2)]
 varps_new <- c(varps_new, new_bin)
 
 #je sépare les variables binaires des autres variables quantatives
-varps_quanti2 <- varps_new[sapply(varps_new, function(variable) length(levels(as.factor(dbis[,variable]))) > 2)] #maintenant qu'il n'y a plus que des quanti binaire et non binaire, je peux transformer les quanti en facteur et dire que si plus de 2 levels, c'est une quanti non binaire.
+varps_quanti2 <- varps_new[sapply(varps_new, function(variable) length(levels(as.factor(d2_b[,variable]))) > 2)] #maintenant qu'il n'y a plus que des quanti binaire et non binaire, je peux transformer les quanti en facteur et dire que si plus de 2 levels, c'est une quanti non binaire.
 varps_binaire <- varps_new[!varps_new%in% varps_quanti2]
 
 ```
 
-```{r}
-#-----------------
-# Checking balance : 
-#a faire uniquement sur les variables servant à construire le score de propension, car permet de voir
-#si le score et le matching ont bien marché
+J'ai ensuite plusieurs méthodes possibles pour regarder si l'appariemment a équilibré la distribution des variables dans les groupes traité par CCD et non traité par CCD:   
 
-#METHODE 0 : 
-#MatchBalance(formula(paste0("SWANT ~ ",paste(varps_new,collapse="+"))), data=d2_b, match.out=tmp) #package Matching
+-  Méthode 1 : je regarde la moyenne de chaque variable en fonction du score de propension (annexe : figure A-2). Je vois donc pour des patients de ces 2 groupes ayant la même probabilité d'être traité, si la moyenne de la variable est semblable. Bien sûr si les courbes se superposent parfaitement, on peut dire que la distribution est semblable dans les deux groupes.Si elles sont disjointes à certaines valeures d'abscisse, nous pouvont dire que pour les individus ayant tel probabilité d'être traité, la moyenne des variables diffèrent. Ainsi dans les courbes présentées en annexe, on voit ainsi que les individus avec une forte probabilité d'être traité ont une moyenne qui semble différer entre les deux groupes pour INCOME, NINCLAS, RESP et SEPS, et que les individus avec une faible probabilité d'être traité ont une moyenne qui semble différer pour les variables RESP, HEMA et DNR1.  Or il me semble qu'on ne cherche pas à ce que les individus ayant la même probabilité d'être traité soit exactement semblable 2 à 2 (même si bien sûr c'est idéal) mais plutôt que les populations des groupes traités et non traités soit homogène, comme c'est le cas lorsque l'on randomise. Il me semble donc plus pertinent de voir si globablement les distribution sont les mêmes dans les deux groupes, et les deux méthodes présentées ci dessous répondent à cette question.  
 
-```
-```{r}
-# #METHODE 1 : moyenne pour chaque variable à chaque point de score de ponpension
-# #pb : ne marche qu'avec le package matchit car il faut la variable distance
+-  Méthode 2 : je regarde la différence standardisée des moyennes (SMD), c'est à dire la différence entre la moyenne dans le groupe cathétérisé et la moyenne dans le groupe non cathétérisé divisé par la variance commune. J'ai séparé les schémas en variables quantitatives non binaires (figure 4) et variables binaires et qualitatives binarisées (Figure 5) pour plus de lisibilité. En instaurant un seuil de smd à 0.1 comme conseillé dans la littérature, je vois que l'appariemment établi un équilibre entre les deux groupes pour toutes les variables ayant servi à calculer le score de propension.   
 
-#fonction qui plot la distribution des variables en fonction du score de propension avant et après matching
-fn_bal <- function(dta, variable) {
-  #browser()
-  dta$variable <- dta[, variable]
-  dta$SWAN <- as.factor(dta$SWAN)
-  ggplot(dta, aes(x = distance, y = variable, color = SWAN)) +
-    geom_point(alpha = 0.2, size = 1.5) +
-    geom_smooth(method = "loess", se = F) +
-    xlab("Propensity score") +
-    ylab(variable) +
-    theme_bw()
-}
 
-.l <- lapply(c(varps_quanti2, varps_binaire), function(variable){
-  #print(variable)
-  num <- which(c(varps_quanti2, varps_binaire)==variable)
-  if (num %% 2 != 0) fn_bal(dtm_b, variable)
-  else fn_bal(dtm_b, variable) + theme(legend.position = "none")
-})
-
-ml <- marrangeGrob(.l, nrow=2, ncol=2, top = NULL)
-ggsave(file="distrib mean variables after matching 20170330.pdf", ml)
-
-#============================
-
-```
-
-```{r}
+```{r, eval = FALSE}
 #METHODE 2 : standardized mean difference avec matchit (variance du groupe traitement)
 
 #https://cran.r-project.org/web/packages/tableone/vignettes/smd.html
@@ -868,16 +836,24 @@ mysd <- as.numeric(by(d2[,"AGE"], d2$SWAN, sd))
 (mymean[2]- mymean[1])/mysd[2] #smd avec l'écart-type du groupe traitement : correspond au smd donné par matchit
 
 #et les variables quali sont transformées en k variables binaire et non k-1, avec k le nombre de classes.
+#de plus j'ai finalement préféré utiliser le package Matching qui ne fournit pas de différence standardisée.
 
-#============================
-
+#J'ai donc refait cette différence standardisée "à la main"
 ```
+
+
 ```{r}
+#==================================================================
 #METHODE 2 BIS standardized mean difference avec variance commune
 
+#----------------
+#----------------
+#CALCUL DE LA SMD 
+
 #-----
-#unmatched
+#jeu non apparié
 dbis <- d2_b
+
 #calcul de smd pour les variables quantitatives non binaires
 smd_quanti_um <- data.frame(smd = sapply(varps_quanti2, function(x){
   mymean <- as.numeric(by(dbis[,x], dbis$SWAN, mean))
@@ -887,6 +863,7 @@ smd_quanti_um <- data.frame(smd = sapply(varps_quanti2, function(x){
   return(mysmd)
 }), variable = varps_quanti2)
 
+#calcul de smd pour les variables binaires (et qualitatives binarisées)
 smd_bin_um <- data.frame(smd = sapply(varps_binaire, function(x){
   mymean <- as.numeric(by(dbis[,x], dbis$SWAN, mean))
   mysmd <- abs((mymean[2]- mymean[1])/sqrt((mymean[2]*(1 - mymean[2]) + mymean[1]*(1 - mymean[1]))/2))
@@ -896,7 +873,7 @@ smd_bin_um <- data.frame(smd = sapply(varps_binaire, function(x){
 smdum <- rbind(smd_quanti_um, smd_bin_um)
 
 #-----
-#matched
+#jeu apparié
 dbis <- d2_app_b
 
 #calcul de smd pour les variables quantitatives non binaires
@@ -908,6 +885,7 @@ smd_quanti_m <- data.frame(smd = sapply(varps_quanti2, function(x){
   return(mysmd)
 }), variable = varps_quanti2)
 
+#calcul de smd pour les variables binaires (et qualitatives binarisées)
 smd_bin_m <- data.frame(smd = sapply(varps_binaire, function(x){
   mymean <- as.numeric(by(dbis[,x], dbis$SWAN, mean))
   mysmd <- abs((mymean[2]- mymean[1])/sqrt((mymean[2]*(1 - mymean[2]) + mymean[1]*(1 - mymean[1]))/2))
@@ -916,8 +894,12 @@ smd_bin_m <- data.frame(smd = sapply(varps_binaire, function(x){
 }), variable = varps_binaire)
 smdm <- rbind(smd_quanti_m, smd_bin_um)
 
-#-----
-#construction du plot
+```
+
+```{r}
+#----------------
+#----------------
+#CONSTRUCTON DES GRAPHES
 
 #quanti
 dataplot <- data.frame(variable = smd_quanti_m$variable, unmatched = smd_quanti_um$smd, matched = smd_quanti_m$smd)
@@ -932,6 +914,12 @@ ggplot(data = dataplotmelt[!dataplotmelt$variable %in% c("distance","SWAN"), ],
   geom_point() +  geom_hline(yintercept = 0.1, color = "red", size = 0.1) +
   coord_flip() +  theme_bw() + theme(legend.key = element_blank(), legend.title = element_blank())
 
+```
+
+Figure 4. Différence standardisée des moyennes des variables quantitatives.
+
+
+```{r}
 #binaire
 dataplot <- data.frame(variable = smd_bin_m$variable, unmatched = smd_bin_um$smd, matched = smd_bin_m$smd)
 dataplotmelt <- melt(data = dataplot, id.vars = "variable", variable.name = "Method", value.name = "SMD")
@@ -948,10 +936,16 @@ ggplot(data = dataplotmelt[!dataplotmelt$variable %in% c("distance","SWAN"), ],
 #=============================
 ```
 
+Figure 5. Différence standardisée des moyennes des variables qualitatives (binarisées pour regarder l'équilibre) et des variables binaires.
+
+
+-  Méthode 3 : je regarde les intervalles de confiances des différentes variables, j'ai réalisé les intervalles de confiance des moyennes pour les variables quantitatives (figure 6) et des fréquences de 1 pour les variables binaires et qualitatives binarisées (figure 7). Les variables quantitatives sont standardisées, ce qui permet une lecture plus aisée du graphique des variables quantitatives. Je ne sais pas comment réaliser un équivalent de cette standardisation avec les variables binaires et le graphique est donc moins facilement analysable. A noter que les variables pour lesquelles on n'a pas pu calculer d'intervalle de confiance pour non respect des conditions de validité (np>=5 et n(1-p)>=5) ne sont pas présente dans le graphe. Ce sont un des niveaux de CAT1 et deux des niveaux de CAT2. On voit là aussi que globalement les variables sont plutôt bien équilibrée après appariemment car les intervalles de confiance se recouvrent deux à deux.   
+
+
 ```{r}
 
-#METHODE 3 IC à la main
-#voir comment calculer IC pou var quali binarisés
+#METHODE 3 IC à la main : variables quantitatives
+
 getMIC_quanti <- function(.data, .vec_group){ #.vec_group en 0/1
   dt <- lapply(names(.data), function(var){
     num <- which(var==names(.data))
@@ -981,16 +975,47 @@ getMIC_quanti <- function(.data, .vec_group){ #.vec_group en 0/1
   return(dt)
 }
 
+#plot des var quanti
+#df <- getMIC_quanti(d2_app_b[ ,c("SWAN", varps_quanti2)])
+df <- getMIC_quanti(d2_app_b[ ,c(varps_quanti2)], d2_app_b$SWAN)
+df <- na.omit(df) #retire les var quali dont les IC n'ont pas été calculés
+
+m<-tapply(df$myy, df$var, mean)
+m<-data.frame(var=names(m), y=m)
+
+df2<-merge(df, m, by="var", all=T)
+df2<-df2[order(df2$var, df2$group),]
+df2$y<-ifelse(df2$groupe=="SWAN", 0.25, -0.25)+df2$y
+
+laby<-unique(df2$var)
+
+col <- hue_pal()(length(1:2))
+
+g <- ggplot(data=df2, aes(x=mymean, xmin = ICminSG, y = y, xend = ICmaxSG, colour=groupe)) + geom_point() 
+g <- g + labs(y = "variable")
+g<-g+scale_y_continuous(name="Variables", breaks=m$y, labels=m$var)
+
+for (i in 1:nrow(df)){
+  g <- g + geom_segment(x = df2$ICminSG[i], y = df2$y[i], xend = df2$ICmaxSG[i], yend = df2$y[i], colour = col[df2$colour[i]])
+  g <- g + geom_segment(x = df2$ICminSG[i], y = df2$y[i]-0.5, xend = df2$ICminSG[i], yend = df2$y[i]+0.5, colour = col[df2$colour[i]])
+  g <- g + geom_segment(x = df2$ICmaxSG[i], y = df2$y[i]-0.5, xend = df2$ICmaxSG[i], yend = df2$y[i]+0.5, colour = col[df2$colour[i]])
+}
+g
+
+```
+
+Figure 6. Intervalle de confiance des variables quantitatives utilisées pour calculer le score de propension, en fonction du traitement par CCD.
+
+```{r}
+#METHODE 3 IC à la main : variables binaires
+
 getMIC_quali <- function(.data, .vec_group){
  
   dt <- lapply(names(.data), function(var){
     num <- which(var==names(.data))
-    #print(num)
-    # #standardisation
-    # .data[,var] <- (.data[,var] - mean(.data[,var]))/sd(.data[,var])  
-    
     x <- .data[.vec_group == 1, var]
     P <- as.numeric(prop.table(table(x))[2]) #length(x[x==1])/length(x)
+    
     if(!is.na(P) & (nrow(.data) * P) >= 5 & (nrow(.data) * (1-P)) >= 5){
       df1 <- data.frame(myfreq = P,
                         ICminSG = P - 1.96*sqrt(P*(1-P)/nrow(.data)),
@@ -1039,33 +1064,7 @@ getMIC_quali <- function(.data, .vec_group){
   return(dt)
 }
 
-#plot des var quanti
-#df <- getMIC_quanti(d2_app_b[ ,c("SWAN", varps_quanti2)])
-df <- getMIC_quanti(d2_app_b[ ,c(varps_quanti2)], d2_app_b$SWAN)
-df <- na.omit(df) #retire les var quali dont les IC n'ont pas été calculés
 
-m<-tapply(df$myy, df$var, mean)
-m<-data.frame(var=names(m), y=m)
-
-df2<-merge(df, m, by="var", all=T)
-df2<-df2[order(df2$var, df2$group),]
-df2$y<-ifelse(df2$groupe=="SWAN", 0.25, -0.25)+df2$y
-
-laby<-unique(df2$var)
-
-col <- hue_pal()(length(1:2))
-
-g <- ggplot(data=df2, aes(x=mymean, xmin = ICminSG, y = y, xend = ICmaxSG, colour=groupe)) + geom_point() 
-g <- g + labs(y = "variable")
-g<-g+scale_y_continuous(name="Variables", breaks=m$y, labels=m$var)
-g
-
-for (i in 1:nrow(df)){
-  g <- g + geom_segment(x = df2$ICminSG[i], y = df2$y[i], xend = df2$ICmaxSG[i], yend = df2$y[i], colour = col[df2$colour[i]])
-  g <- g + geom_segment(x = df2$ICminSG[i], y = df2$y[i]-0.5, xend = df2$ICminSG[i], yend = df2$y[i]+0.5, colour = col[df2$colour[i]])
-  g <- g + geom_segment(x = df2$ICmaxSG[i], y = df2$y[i]-0.5, xend = df2$ICmaxSG[i], yend = df2$y[i]+0.5, colour = col[df2$colour[i]])
-}
-g
 
 #plot des var binaire
 df <- getMIC_quali(d2_app_b[ ,varps_binaire], d2_app_b$SWAN)
@@ -1092,69 +1091,51 @@ for (i in 1:nrow(df)){
   g <- g + geom_segment(x = df2$ICmaxSG[i], y = df2$y[i]-0.5, xend = df2$ICmaxSG[i], yend = df2$y[i]+0.5, colour = col[df2$colour[i]])
 }
 g
+
 ```
 
-Tout d'abord, je transforme mes variables qualitatives en n-k variables binaires, k étant le nombre de classe de la variable qualitative.  
-J'ai ensuite plusieurs méthodes possibles pour regarder si l'appariemment a équilibré la distribution des variables dans le groupe traité et non traité : 
--  je peux regarder la moyenne de chaque variable en fonction du score de popension. Je vois donc pour des patients de ces 2 groupes ayant la même probabilité d'être traité, si la moyenne de la variable est semblable. Bien sûr si les courbes se superposent parfaitement, on peut dire que la distribution est semblable dans les deux groupes.Si elles sont disjointes à certaines valeures d'abscisse, nous pouvont dire que pour les individus ayant tel probabilité d'être traité, la moyenne des variables diffèrent. Ainsi dans les courbes présentées en annexe, on voit ainsi que les individus avec une forte probabilité d'être traité ont une moyenne qui semble différer entre les deux groupes pour INCOME, NINCLAS, RESP et SEPS, et que les individus avec une faible probabilité d'être traité ont une moyenne qui semble différer poyr les variables RESP, HEMA et DNR1.  Or il me semble qu'on ne cherche pas à ce que les individus ayant la même probabilité d'être traité soit exactement semblable 2 à 2 (même si bien sûr c'est idéal) mais plutôt que les populations des groupes traités et non traités soit homogène, comme c'est le cas lorsque l'on randomise. Il me semble donc plus pertinent de voir si globablement les distribution sont les mêmes dans les deux groupes, et les deux méthodes présentées ci dessous répondent à cette question.  
--  Je regarde la différence standardisée des moyennes(smd), c'est à dire la différence entre la moyenne dans le groupe cathétérisé et la moyenne dans le groupe non cathétérisé divisé par la variance commune. J'ai séparé les schémas en variable binaire et variable quantitative non binaire pour plus de visibilité. En instaurant un seuil de smd à 0.1 comme conseillé dans la littérature, je vois que l'appariemment établi un équilibre entre les deux groupes pour toutes les variables. 
--  Je regarde les intervalles de confiances des différentes variables, j'ai réalisé les intervalles de confiance des moyennes pour les variables quantitatives et des fréquences de 1 pour les variables binaires (qui sont en 0/1). Les variables quantitatives sont standardisées, ce qui permet une lecture plus aisée du graphique des variables quantitatives. Je ne sais pas comment réaliser un équivalent de cette standardisation avec les variables binaires et le graphique est donc moins facillement analysable. A noter que les variables pour lesquelles on n'a pas pu calculer d'intervalle de confiance pour non respect des conditions de validité (np>=5 et n(1-p)>=5) ne sont pas présente dans le graphe. On voit cependant là aussi que les variables sont plutôt bien équilibrée après appariemment.
-
-Dans le futur, je préférerai quand même l'analyse de l'équilibre par la méthode smd, j'ai d'ailleurs pu voir qu'elle était souvent utilisée dans les publications.
+Figure 7. Intervalle de confiance des variables qualitatives et binaires utilisées pour calculer le score de propension, en fonction du traitement par CCD (les variables qualitatives ont été binarisées).
 
 
-# Analyses dans la population appariée
+Dans le futur, je préférerai quand même l'analyse de l'équilibre par la méthode smd qui est plus radide à coder et plus facile à lire. C'est dailleurs la méthode que j'ai le plus souvent rencontrée dans les publications.
+
+
+# V - Analyses dans la population appariée
 
 ```{r, eval = FALSE}
-#analysis
+
 #http://imai.princeton.edu/research/files/matchit.pdf
 #journals.sfu.ca/jmde/index.php/jmde_1/article/download/431/414
 #http://r.iq.harvard.edu/docs/matchit/2.4-20/matchit.pdf
-
-
-#Analyse avec d2.app = package Matching (methode David Hajage)
-
-#d2.app$DEATH <- as.numeric(as.character(d2.app$DEATH))
-d2.app$DTH30 <- as.numeric(as.character(d2.app$DTH30))
-d2.app$SWAN <- as.numeric(as.character(d2.app$SWAN))
-#clogit(DEATH~SWAN + cluster(paire), method="efron", data=d2.app) #marche avec efron
-#clogit(DTH30~SWAN + cluster(paire), method="efron", data=d2.app) #marche avec efron
-mod1 <- clogit(DTH30~SWAN + strata(paire), method="efron", data=d2.app) #marche avec efron
-exp(coefficients(mod1))
-exp(confint(mod1))
-
-#coxph(Surv(rep(1, nrow(d2.app)),DEATH)~SWAN + cluster(paire), data=d2.app) #marche mais est-ce vraiment la même chose?
-coxph(Surv(rep(1, nrow(d2.app)),DTH30)~SWAN + cluster(paire), data=d2.app) #marche mais est-ce vraiment la même chose?
-#glm(DEATH~SWAN, data=d2.app, family="binomial")
-glm(DTH30~SWAN, data=d2.app, family="binomial")
-#glmer(DEATH~SWAN + (1|paire), data=d2.app, family = "binomial")
-glmer(DTH30~SWAN + (1|paire), data=d2.app, family = "binomial")
+#FE Harrell, Regression Modeling Strategies(2nd Ed)
 ```
 
 Pour répondre à la question "le cathétérisme cardiaque droit modifie-t-il la survie à 30 jours?", je peux utiliser deux méthodes différentes. Soit j'utilise une régression logistique conditionnelle, soit j'utilise un modèle de Cox. Dans les deux cas, j'utilise mon échantillon apparié et je stratifie sur le numéro de paire.
 
-## Régression logistique conditionnelle
+## 1) Régression logistique conditionnelle
 
 La variable à expliquer est la mort à 30 jours, la variable explicative est le cathétérisme cardiaque et je stratifie sur le paire.
 
-```{r}
+```{r, include = FALSE}
 d2.app$DTH30 <- as.numeric(as.character(d2.app$DTH30))
 d2.app$SWAN <- as.numeric(as.character(d2.app$SWAN))
 mod1 <- clogit(DTH30~SWAN + strata(paire), method="efron", data=d2.app) #marche avec efron
 #mod1 <- clogit(SWAN~DTH30 + strata(paire), method="efron", data=d2.app) #marche avec efron
 exp(coefficients(mod1))
 exp(confint(mod1))
-
 ```
 
-Les conditions de validité sont respectées, j'ai plus de 5 à 10 évènements par variable explicative (la stratification sur la paire n'est pas une variable explicative).
+Je n'ai pas trouvé de source indiquant explicitement quelles sont les conditions de validité de la régression logistique conditionnelle. Par défaut j'ai donc considérée que c'étaient les mêmes conditions que pour la régression logistique et elles sont ici respectées : j'ai plus de 5 à 10 évènements par variable explicative (la stratification sur la paire n'est pas une variable explicative).  
+
 Le coefficient du cathétérisme est significatif (pvalue<0.01), le cathétérisme cardiaque droit a donc un effet significatif sur le risaue de décès à 30 jours. le coeffcient vaut 0.17, l'exponentiel du coefficient me permet d'obtenir l'Odds ratio du risque de décès associé au cathétérisme. L'OR est de 1.19 avec un intervalle de confiance à 95% [1.05-1.34]. Le décès n'est pas un évènement rare, je ne peux donc pas interpréter l'OR comme un RR mais je peux dire que le risque de décès est augmenté lorsque le patient est cathétérisé.
 
-## Modèle de Cox
 
-```{r}
+## 2) Analyse de survie : Modèle de Cox
+
+```{r, eval = FALSE}
     #nombre de strates
     length(unique(d2.app$paire))
+
     #nombre d'évènement
     #nombre de strates sans evenements
     noevt <- aggregate(d2.app[ ,c("paire", "DTH30")], by = list(d2.app$paire), sum)
@@ -1162,19 +1143,17 @@ Le coefficient du cathétérisme est significatif (pvalue<0.01), le cathétéris
     
 ```
 
-Une deuxième manière de réaliser le calcul est par modèle de cox. Dans ce cas il est problématique de prendre en compte l'appariemment par une stratification sur la paire car FE Harrell nous précise dans son livre Regression Modeling Strategies(2nd Ed) p.482 que si le nombre de strates est très grand par rapport au nombre total d'évènement, on perd en efficience(? "Loss of efficiency" dans le texte). Or on a ici 1569 paires ou strates pour 1055 évènements, ce qui peut être considéré comme un grand nombre de strates relativement au nombre d'évènements bien qu'aucun seuil ne soit précisé. Et de plus FE Harrell nous précise qu'une strate qui ne contient aucun évènement ne contribue pas à l'information et qu'une telle situation doit donc être évitée si possible. Or ici 44% des paires sont sans évènements et ne contribue pas à l'information avec donc j'imagine une perte de puissance. 
+Une deuxième manière de réaliser le calcul est par modèle de cox. Dans ce cas il est problématique de prendre en compte l'appariemment par une stratification sur la paire car FE Harrell nous précise dans son livre Regression Modeling Strategies(2nd Ed) p.482 que si le nombre de strates est très grand par rapport au nombre total d'évènement, on perd en efficience(? "Loss of efficiency" dans le texte, je ne sais pas bien comment le traduire). Or on a ici 1569 paires ou strates pour 1055 évènements, ce qui peut être considéré comme un grand nombre de strates relativement au nombre d'évènements bien qu'aucun seuil ne soit précisé. Et de plus FE Harrell nous précise qu'une strate qui ne contient aucun évènement ne contribue pas à l'information et qu'une telle situation doit donc être évitée si possible. Or ici 44% des paires sont sans évènements et ne contribue pas à l'information avec donc j'imagine une perte de puissance. 
 J'utiliserai donc l'option cluster(paire) plutôt que strata(paire) pour prendre en compte l'appariemment dans le modele de cox. Cette option prend en compte le design apparié, et on regarde alors la variance robuste et le test du score robuste. Cette méthode calcule une vraisemblance globale et non pas strate par strate comme lorsque l'on stratifie, évitant donc de perdre de l'information. 
-
-A noter que contrairement à la régression logstique conditionnelle, les sujets perdus avant 30 jours sont gérés par le modèle de cox. Cependant je préfère garder le même échantillon de patients que pour la régression logistique conditionnelle en prenant la variable décès à 30 jours modifiée telle que les patients perdus de vu avant 30 jours sont manquant pour le statut(les sujets ayant un statut manquant sont automatiquement retirés de l'analyse, comme pour le modèle de régression logistique). 
 
 
 ```{r}
-mod2 <- coxph(Surv(timeb,DTH30) ~ SWAN + cluster(paire), data=d2.app) #J'utilise DTH30 afin d'avoir le même échantillon que pour la régression logistique conditionnelle.
+mod2 <- coxph(Surv(T3D30,DTH30) ~ SWAN + cluster(paire), data=d2.app) #J'utilise DTH30 afin d'avoir le même échantillon que pour la régression logistique conditionnelle.
   z <- cox.zph(mod2, transform = "rank")
-  cat("Test de Harrell\n\n")
-  print(z)
+  #cat("Test de Harrell\n\n")
+  #print(z)
   pval <- round(z$table[,3],3)
-  cat(paste0("\nTest de Harrell p value: ", pval))
+  #cat(paste0("\nTest de Harrell p value: ", pval))
   #non signif si p>=0.05 (condition respectée qd non signif)
   
   #résidus de Shoenfeld
@@ -1182,8 +1161,13 @@ mod2 <- coxph(Surv(timeb,DTH30) ~ SWAN + cluster(paire), data=d2.app) #J'utilise
   plot(z, main="Résidus de Shoenfeld", lwd=1)
   abline(h=0, col="red")
   abline(h=coef(mod2), col="blue")
-  text(x = (max(d2.app$timeb)*1/3), y = z$table[,1], labels = paste0("Harrell test p = ", pval))
+  text(x = 20, y = 1, labels = paste0("test de Harrell p = ", pval))
 
+```
+
+Figure 8. Résidus de Shoenfeld en fonction du temps. P value à partir du test de Harrell.
+
+```{r, eval = FALSE}
   #transformation en fonction du temps
   #decoupage par les temps d'evenement
    ti <- sort(unique(c(0,d2.app$timeb[d2.app$DTH30==1])))
@@ -1211,9 +1195,12 @@ mod2 <- coxph(Surv(timeb,DTH30) ~ SWAN + cluster(paire), data=d2.app) #J'utilise
   pval_at <- test$coefficients["at","Pr(>|z|)"] #si <0.05 on peut regarder les courbesm sinon inutiles
   pval_at
   #Les test des coef des variables dépendantes du temps sont sup à 0.05 pour toutes les transformations (donc les transformations ne conviennent pas)
-  
-  
-  #aucune transformation ne convient mais voici quand même les codes pour revérifier les conditions si j'avais trouvé une transformation convenable à l'étape précédente
+
+```
+
+
+```{r, eval = FALSE}
+ #aucune transformation ne convient mais voici quand même les codes pour revérifier les conditions si j'avais trouvé une transformation convenable à l'étape précédente
       zt <- cox.zph(coxt, transf="identity")
     for (i in 1:(nrow(zt$table)-1)){
       iz<-i
@@ -1249,6 +1236,9 @@ mod2 <- coxph(Surv(timeb,DTH30) ~ SWAN + cluster(paire), data=d2.app) #J'utilise
     # IC <- round(exp(m + qnorm(0.975)*sqrt(variance) * c(-1,1)),3)
     # cat(paste0("\nHR[95%CI] = ",HR, " [", IC[1], "-", IC[2], "] ", "pour t = ", t, " jours" ))
 
+```
+
+```{r}
 # Interpretation du modèle de cox sans transformation 
     mod2 <- coxph(Surv(timeb,DTH30) ~ SWAN + cluster(paire), data=d2.app) #J'utilise DTH30 afin d'avoir le même échantillon que pour la régression logistique conditionnelle.
     test <- summary (mod2)
@@ -1260,31 +1250,28 @@ mod2 <- coxph(Surv(timeb,DTH30) ~ SWAN + cluster(paire), data=d2.app) #J'utilise
     ICl <- cHR-error
     ICu <- cHR+error
     paste(round(exp(c(cHR, ICl, ICu)),3))
-    
 ```
-L'hypothèse des risques proportionnels n'est pas vérifiée. En effet l'intervalle de confiance des résidus de shoenfeld n'incluent pas 0 en tous points. Il faut donc en toute rigueur que j'ajoute une variable SWAN dépendante du temps. Cependant je n'ai pas trouvé de transformation qui convienne, aucun coefficient de paramètre dépendant du temps n'étant significatif lorsqu'on l'ajoute au modèle (les résidus de Shoenfeld des modèles ne doivent donc même pas être regardés). Voici les transformations essayeées : log, racine carrée, *temps, 1/temps, racine cube, carré, cube et puissance de 0.7.  J'analyse donc le modèle de Cox sans ajouter de variable dépendante du temps, mais il faudra avoir en tête que le résultat est erroné.
+
+
+L'hypothèse des risques proportionnels n'est pas vérifiée. En effet l'intervalle de confiance des résidus de shoenfeld n'incluent pas 0 en tous points (figure 8). Il faut donc en toute rigueur que j'ajoute une variable SWAN dépendante du temps. Cependant je n'ai pas trouvé de transformation qui convienne, aucun coefficient de paramètre dépendant du temps n'étant significatif lorsqu'on l'ajoute au modèle (les résidus de Shoenfeld des modèles ne doivent donc même pas être regardés). Voici les transformations essayeées : log, racine carrée, *temps, 1/temps, racine cube, carré, cube et puissance de 0.7.  J'analyse donc le modèle de Cox sans ajouter de variable dépendante du temps, mais il faudra avoir en tête que le résultat est erroné.
 
 L'ajout d'un cluster sur la paire me permet d'avoir une variance robuste prenant en compte l'appariemment. J'utilise cette variance robuste pour calculer l'intervalle de confiance à 95% du Hazard ratio: 1.236 [1.233-1.239]. Je regarde le test du score robuste pour conclure : p<0.001. Le risque de décès est donc significativement différent selon que le patient est cathétérisé ou non. Et c'est dans le sens d'un risque plus grand chez les patients cathétérisés avec un risque de décès à 30 jours multiplié par 1.236.
 
 Je retrouve cette information graphiquement en traçant une courbe de survie en fonction du traitement par cathéterisme cardiaque droit.
 
-## Représentation graphique de la survie à 30 jours en fonction du traitement par cathétérisme cardiaque droit
+## 3) Représentation graphique de la survie à 30 jours en fonction du traitement par CCD par la méthode de Kaplan-Meier
 
-### Méthode
-La méthode de Kaplan Meier permet de représenter graphiquement les courbes de survie (une courbe par groupe). 
+La méthode de Kaplan Meier permet de représenter graphiquement les courbes de survie (une courbe par groupe).   
+Condition de validité de la méthode de Kaplan Meier :  
+-   censure indépendante de la probabilité de survenue de l'evenement  
+-   probabilité de survie indépendante du moment de recrutement dans l'étude   
+-   censure indépendante du groupe
 
-### Conditions de validité
-
-Kaplan Meier :  
-- censure indépendante de la probabilité de survenue de l'evenement  
-- probabilité de survie indépendante du moment de recrutement dans l'étude   
-- censure indépendante du groupe
-
-```{r}
+```{r, fig.width=8, fig.height=6}
 
 s <- d2.app
-.title <- "Survie selon traitement par cathétérisme cardiaque"
-vec_time_IC <- c(10,30)
+.title <- "Survie selon traitement par cathétérisme cardiaque droit"
+vec_time_IC <- c(10, 20, 30)
 var <- "CCD"
 s$tps <- s[ ,"timeb"] 
 
@@ -1320,18 +1307,22 @@ col <- hue_pal()(length(leg))
 #courbe de survie
 g <- ggsurv(km, CI=FALSE, order.legend=FALSE, surv.col=col, cens.col=col) +
   #changement des axes
-  scale_x_continuous(breaks=seq(0,max(s$tps),1), labels=0:(length(seq(0,max(s$tps),1))-1)) +
+  scale_x_continuous(breaks=seq(0,max(s$tps),10), labels=(0:(length(seq(0,max(s$tps),10))-1))*10) +
   scale_y_continuous(labels=percent) +
   labs(x="durée de suivi, jours", y="Survie, %", title=.title) +
   #changement legende
   guides (linetype = FALSE) +
   scale_colour_discrete( labels = leg) +
+  theme(title = element_text(size=14), axis.text = element_text(size=12), axis.title=element_text(size=14),
+        legend.text = element_text(size=12)) +
   theme(legend.position="right", legend.title=element_blank()) +
   #espace autour du schéma
-  theme(plot.margin = unit(c(1,1,3,2), "cm")) #top, right, bottom, left
+  theme(plot.margin = unit(c(1,1,3,2), "cm")) #+ #top, right, bottom, left 
+
+  #theme_bw()
 
 #intervalle de confiance
-for (i in 1:2) {
+for (i in 1:length(vec_time_IC)) {
   g <- g + geom_segment(x = skmi0$time[i], y = skmi0$lower[i], xend = skmi0$time[i], yend = skmi0$upper[i], colour = col[1])
   g <- g + geom_segment(x = skmi0$time[i] - 0.1, y = skmi0$lower[i], xend = skmi0$time[i] + 0.1, yend = skmi0$lower[i], colour = col[1])
   g <- g + geom_segment(x = skmi0$time[i] - 0.1, y = skmi0$upper[i], xend = skmi0$time[i] + 0.1, yend = skmi0$upper[i], colour = col[1])
@@ -1354,12 +1345,9 @@ g <- g + annotate("text",
 gt <- ggplotGrob(g)
 gt$layout$clip[gt$layout$name=="panel"] <- "off"
 grid.draw(gt)
-    
-
-
 ```
 
-Fig X. Courbes de survie par la méthode de Kaplan Meier de la survie à 30 jours en fonction du traitement par cathétérisme cardiaque droit. 
+Figure 9. Courbes de survie par la méthode de Kaplan Meier de la survie à 30 jours en fonction du traitement par cathétérisme cardiaque droit. p value calculée par modèle de cox avec cluster sur la paire. 
 
 
 ```{r}
@@ -1373,7 +1361,12 @@ dfrisk$surv <- paste(round(dfrisk$surv,2)*100,"%")
 dfrisk0 <- dfrisk[dfrisk$strata=="SWAN=0",-5]
 dfrisk0b <- data.frame(time=c(10,20,30))
 dfrisk0b$n.risk <- dfrisk0$n.risk[dfrisk0$time%in%dfrisk0b$time]
-dfrisk0b$n.event <- sapply(dfrisk0b$time, function(x) sum(dfrisk0$n.event[dfrisk0$time<=x]))
+dfrisk0b$n.event <- sapply(dfrisk0b$time, function(x) {
+  num <- which (dfrisk0b$time==x)
+  if (num==1) res <- sum(dfrisk0$n.event[dfrisk0$time<=x])
+  else res <- sum(dfrisk0$n.event[dfrisk0$time>dfrisk0b$time[num-1]  & dfrisk0$time<=x])
+  return(res)
+})
 dfrisk0b$surv <- dfrisk0$surv[dfrisk0$time%in%dfrisk0b$time]
 
 dfrisk0tab <- data.frame(t(dfrisk0b))[-1,]
@@ -1383,14 +1376,19 @@ dfrisk0tab <- dfrisk0tab[,c(ncol(dfrisk0tab),1:(ncol(dfrisk0tab)-1))]
 kable(dfrisk0tab)
 ```
 
-Table X Table de survie des patients non traités par cathétérisme cardiaque droit
+Table 4. Table de survie des patients non traités par cathétérisme cardiaque droit
 
 ```{r}
 #groupe swan=1
 dfrisk1 <- dfrisk[dfrisk$strata=="SWAN=1",-5]
 dfrisk1b <- data.frame(time=c(10,20,30))
 dfrisk1b$n.risk <- dfrisk1$n.risk[dfrisk1$time%in%dfrisk1b$time]
-dfrisk1b$n.event <- sapply(dfrisk1b$time, function(x) sum(dfrisk1$n.event[dfrisk1$time<=x]))
+dfrisk1b$n.event <- sapply(dfrisk1b$time, function(x) {
+  num <- which (dfrisk1b$time==x)
+  if (num==1) res <- sum(dfrisk1$n.event[dfrisk1$time<=x])
+  else res <- sum(dfrisk1$n.event[dfrisk1$time>dfrisk1b$time[num-1]  & dfrisk1$time<=x])
+  return(res)
+})
 dfrisk1b$surv <- dfrisk1$surv[dfrisk1$time%in%dfrisk1b$time]
 
 dfrisk1tab <- data.frame(t(dfrisk1b))[-1,]
@@ -1401,23 +1399,38 @@ kable(dfrisk1tab)
 ```
 
 
-Table X Table de survie des patients traités par cathétérisme cardiaque droit
+Table 5. Table de survie des patients traités par cathétérisme cardiaque droit
 
 
-On observe 2 courbes de survie, 1 pour le groupe non traité(0) et 1 pour le groupe traité(1). A chaque temps, les "marches d'escalier" représentent les patients qui ont eu l'évènement, faisant diminuer le nombre de personnes à risque d'évènement(c'est à dire les non répondeurs). Les croix représentent à chaque temps la présence de censure (perdus de vue ou exclus vivant). Par exemple, je passe de 75% de répondeurs à J7 à un peu plus de 50% de répondeurs à J14 dans le groupe 0. Dans la table de survie (table 3) je vois que ça correspond à 16 patients ayant eu l'évènement à J14. Pour le groupe 1, je lis sur la courbe que je passe de 90% environ à 75% de répondeurs. Dans la table de survie (table 4) cela correspond à 10 patients ayant eu l'évènement.
+Sur la figure 9, on observe 2 courbes de survie, une pour le groupe non traité pour CCD et une pour le groupe traité par CCD. A chaque temps, les "marches d'escalier" représentent les patients qui ont eu l'évènement, faisant diminuer le nombre de personnes à risque d'évènement(c'est à dire les non répondeurs). Les croix représentent à chaque temps la présence de censure (perdus de vue ou exclus vivant). Par exemple dans le groupe non traité, je passe de près de 85% de survie à J10 à près de 75% de survie à J20 dans le groupe non traité. Dans la table de survie (table 4) je vois que ça correspond à 126 patients ayant eu l'évènement entre J10 et J20. Pour le groupe traité, je lis sur la courbe que je passe de 80% environ de survie à J10 à 70% environ à J20. Dans la table de survie (table 5) cela correspond à 154 patients ayant eu l'évènement.
 La courbe de Kaplan Meier nous permet d'observer graphiquement que la survie est meilleure lorsque les patients ne sont pas traités par cathétérisme cardiaque droit.
 
 # Conclusion
 
-Dans cette étude observationnelle, après prise en compte des biais d'indication propables à l'aide d'un score de propension, nous mettons en évidence une association entre le cathétérisme cardiaque droit par sonde de swan ganz et le risque de mortalité à 30 jours : le cathétérisme cardiaque droit est associé à une augmentation du risque de mortalité (bien que l'utilisation du score de propension augmente le niveau de causalité, on ne peut pas conclure avec le même niveau de causalité qu'un essai randomisé).
+Nous voulions savoir si le cathétérisme cardiaque droit(CCD) améliorait la survie à 30  jours des patients admis en réanimation. Les données étaients observationnelles, sans randomisation de l'intervention. On ne pouvait donc pas exclure la présence de biais de confusion et d'attrition, qui ont d'ailleurs été mis en évidence dans le devoir : les patients traités par CCD étaient dans un état plus grave. En l'état aucune analyse ne pouvais être faite car elle aurait été biaisée. Afin de tenir compte des charactéristiques de bases nous avons donc réalisé un score de propension et apparié sur ce score. Ainsi chaque individus traité et non traité appariés avaient la même probabilité d'être traités. Après appariemment et en tenant compte de cet appariemment dans l'analyse, nous mettons en évidence une association entre le cathétérisme cardiaque droit par sonde de swan ganz et le risque de mortalité à 30 jours : le cathétérisme cardiaque droit est associé à une augmentation du risque de mortalité. Mais bien que l'utilisation du score de propension augmente le niveau de causalité, on ne peut pas conclure avec le même niveau de causalité qu'un essai randomisé.
+
+
+# References
+
+Connors, A. F., T. Speroff, N. V. Dawson, C. Thomas, F. E. Harrell, D. Wagner, N. Desbiens, et al. “The Effectiveness of Right Heart Catheterization in the Initial Care of Critically Ill Patients. SUPPORT Investigators.” JAMA 276, no. 11 (September 18, 1996): 889–97.  
+
+Sterne, J. A C, I. R White, J. B Carlin, M. Spratt, P. Royston, M. G Kenward, A. M Wood, and J. R Carpenter. “Multiple Imputation for Missing Data in Epidemiological and Clinical Research: Potential and Pitfalls.” BMJ 338, no. jun29 1 (September 1, 2009): b2393–b2393. doi:10.1136/bmj.b2393.  
+
+Cours du Dr David Hajage "Evaluation de l’effet d’un traitement en condition réelle d’utilisation  (scores de propension et scores pronostiques)", janvier 2017.   
+
+Austin, Peter C. “An Introduction to Propensity Score Methods for Reducing the Effects of Confounding in Observational Studies.” Multivariate Behavioral Research 46, no. 3 (May 31, 2011): 399–424. doi:10.1080/00273171.2011.568786.  
+
+Ho, Daniel E., Kosuke Imai, Gary King, and Elizabeth A. Stuart. “MatchIt: Nonparametric Preprocessing for Parametric Causal Inference.” Journal of Statistical Software 42, no. 8 (2011). doi:10.18637/jss.v042.i08.  
+
+
 
 #Annexes
 
 
-#Distribution des variables avant modification et imputation
-```{r, eval= FALSE}
+## Figure A-1. Distribution des variables avant modification et imputation
+```{r}
 #4/ distribution des items avant modification et imputation
-#cf annexe
+
 .l <- lapply(colnames(d), function(x){
   if (class(d[,x])=="Date") {
     #browser()
@@ -1430,15 +1443,42 @@ Dans cette étude observationnelle, après prise en compte des biais d'indicatio
   
 })
 ml <- marrangeGrob(.l,ncol=3,nrow=3,top = NULL)
-ggsave(file="distrib bef dm.pdf", ml)
+#ggsave(file="distrib bef dm.pdf", ml)
 print(ml)
 
 ```
 
-#Description des variables avant imputation
-```{r, eval=FALSE}
-# Je fais un tableau descriptif pour répérer d'éventuels incohérence
-write.table(print(do.call(rbind, lapply(c(var_quali_des, var_quanti_des, var_atcd, var_com, var_exam, var_ad), describe_all, d))), file="clipboard", sep="\t")
-range(d$LSTCTDTE)
-range(d$SADMDTE)
+
+
+## Figure A-2. Equilibre des variables après appariemment :  moyenne pour chaque variable en fonction du score de propension
+```{r}
+#METHODE 1 checking balance: moyenne pour chaque variable en fonction du score de ponpension
+
+#fonction qui plot la distribution des variables en fonction du score de propension avant et après matching
+fn_bal <- function(dta, variable) {
+  #browser()
+  dta$variable <- dta[, variable]
+  dta$SWAN <- as.factor(dta$SWAN)
+  ggplot(dta, aes(x = logitps, y = variable, color = SWAN)) +
+    geom_point(alpha = 0.01, size = 1.5) +
+    geom_smooth(method = "loess", se = F) +
+    xlab("Propensity score") +
+    ylab(variable) +
+    theme_bw() +
+     theme(axis.text = element_blank(), axis.title.x= element_blank(), axis.title.y = element_text(size=10)) 
+}
+
+.l <- lapply(c(varps_quanti2, varps_binaire), function(variable){
+  #print(variable)
+  num <- which(c(varps_quanti2, varps_binaire)==variable)
+  if (num %% 3 != 0) fn_bal(d2_app_b, variable)
+  else fn_bal(d2_app_b, variable) + theme(legend.position = "none")
+})
+
+ml <- marrangeGrob(.l, nrow=4, ncol=3, top = NULL)
+print(ml)
+#ggsave(file="distrib mean variables after matching 20170402.pdf", ml)
+
+#============================
+
 ```
